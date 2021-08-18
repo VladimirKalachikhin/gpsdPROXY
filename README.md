@@ -2,7 +2,7 @@
 **version 0.0**  
 
 It is very convenient to access the **[gpsd](https://gpsd.io/)** from web apps with asynchronous request [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) But there are problems:  
->**First**, the AIS data not available by ?POLL; request.
+>**First**, the AIS data not available by ?POLL; request.  
 >**Second**, the data other them time-position-velocity (from GNSS reciever, in general) may not be included to ?POLL; request.
 
 Details and discussion see:  
@@ -30,11 +30,10 @@ The output same as described for **gpsd** [?POLL;](https://gpsd.gitlab.io/gpsd/g
 * time are UNIX timestamp
 * added _ais_ array as described [AIS DUMP FORMATS](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_ais_dump_formats) section, except:  
 
->
-* Speed in m/sec
-* Location in degrees
-* Angles in degrees
-* Draught in meters
-* Length in meters
-* Beam in meters
-* time are UNIX timestamp
+>* Speed in m/sec
+>* Location in degrees
+>* Angles in degrees
+>* Draught in meters
+>* Length in meters
+>* Beam in meters
+>* time are UNIX timestamp
