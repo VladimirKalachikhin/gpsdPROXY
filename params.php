@@ -1,6 +1,6 @@
 <?php
-//$gpsdProxydHost='localhost'; 	// 
-$gpsdProxyHost='192.168.10.10'; 	// gpsdPROXY host
+$gpsdProxydHost='localhost'; 	//  gpsdPROXY host
+//$gpsdProxyHost='192.168.10.10'; 	// 
 $gpsdProxyPort=3838; 	// gpsdPROXY port
 
 // перечень типов данных каждого источника в gpsd, для которых требуется контролтровать время жизни
