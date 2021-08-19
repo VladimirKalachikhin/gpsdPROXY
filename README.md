@@ -28,7 +28,7 @@ The output same as described for **gpsd** [?POLL;](https://gpsd.gitlab.io/gpsd/g
 
 * _sky_ array is empty
 * time are UNIX timestamp
-* added _ais_ array as described [AIS DUMP FORMATS](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_ais_dump_formats) section, except:  
+* added _ais_ array with key = mmsi and value as described [AIS DUMP FORMATS](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_ais_dump_formats) section, except:  
 
 >* Speed in m/sec
 >* Location in degrees

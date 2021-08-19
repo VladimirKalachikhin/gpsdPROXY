@@ -180,7 +180,7 @@ do {
 				if($gpsdData['AIS']) {
 					foreach($gpsdData['AIS'] as $vehicle => $data){
 						$data['data']["class"] = "AIS";
-						$POLL["ais"][] = $data['data'];
+						$POLL["ais"][$data['data']['mmsi']] = $data['data'];
 					}
 				}
 				$messages[$sockKey]['output'] = json_encode($POLL);

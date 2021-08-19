@@ -28,7 +28,7 @@ $ php gpsdPROXY.php
 
 * массив _sky_ пуст
 * время везде UNIX time
-* добавлен массив _ais_  в формате, описанном в [AIS DUMP FORMATS](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_ais_dump_formats), за исключением:
+* добавлен массив _ais_  с ключами mmsi и данными в формате, описанном в [AIS DUMP FORMATS](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_ais_dump_formats), за исключением:
 
 >* скорость в м/сек
 >* координаты в десятичных градусах
