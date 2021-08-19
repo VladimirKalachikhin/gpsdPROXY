@@ -100,10 +100,7 @@ do {
 		
 		if($buf === FALSE) { 	// клиент умер
 			echo "\nFailed to read data by: " . socket_strerror(socket_last_error($socket)) . "\n";
-			foreach($sockets as $i => $sock){
-				if(!is_resource($sock)) unset($sockets[$i]);
-			}
-			if(!is_resource($gpsdSock)){ 	// умерло соединение с gpsd
+			if($socket == $gpsdSock){ 	// умерло соединение с gpsd
 				echo "\nGPSD socket die. Try to reconnect.\n";
 				socket_close($gpsdSock);
 				$gpsdSock = createSocketClient($gpsdProxyGPSDhost,$gpsdProxyGPSDport); 	// Соединение с gpsd
@@ -111,12 +108,20 @@ do {
 				$devicePresent = connectToGPSD($gpsdSock);
 				echo "Handshaked, will recieve data from gpsd\n";
 			}
-			elseif(!is_resource($masterSock)){ 	// умерло входящее подключение
+			elseif($socket == $masterSock){ 	// умерло входящее подключение
 				echo "\nIncoming socket die. Try to recreate.\n";
 			    socket_close($masterSock);
 				$masterSock = createSocketServer($gpsdProxyHost,$gpsdProxyPort,20); 	// Входное соединение
 			}
-			else socket_close($socket);
+			else {
+				foreach($sockets as $i => $sock){
+					if($sock == $socket){
+						unset($sockets[$i]);
+						break;
+					}
+				}
+				socket_close($socket);
+			}
 		    continue;
 		}
 		
@@ -200,8 +205,12 @@ do {
 		$res = socket_write($socket, $msg, strlen($msg));
 		if($res === FALSE) { 	// клиент умер
 			echo "\nFailed to write data to by: " . socket_strerror(socket_last_error($sock)) . "\n";
-			$i = array_search($socket,$sockets);
-			unset($sockets[$i]);
+			foreach($sockets as $i => $sock){
+				if($sock == $socket){
+					unset($sockets[$i]);
+					break;
+				}
+			}
 			unset($messages[$n]);
 			socket_close($socket);
 			continue;
