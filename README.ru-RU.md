@@ -1,10 +1,11 @@
 # gpsdPROXY daemon [![License: CC BY-SA 4.0](https://img.shields.io/badge/License-CC%20BY--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-sa/4.0/)
-**version 0.0**  
+**version 0.1**  
 
 Весьма удобно обращаться к **[gpsd](https://gpsd.io/)** из веб-приложений посредством команды [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) в произвольный момент времени, однако есть проблемы:  
 >**во-первых**, данные AIS недоступны в команде ?POLL;  
 >**во-вторых**, данные, отличные от тех, что отдаёт приёмник ГПС, могут не попасть в команду ?POLL;
 
+Причина в том, что **gpsd** собирает данные в течение "эпохи" от одного получения координат приёмником ГПС до другого. Но "эпоха" для данных AIS и приборов гораздо длиннее, и эти данные не попадают в запрос ?POLL;  
 С деталями и дискуссией по этому поводу можно ознакомиться по следующим ссылкам (англ.):  
 [https://lists.nongnu.org/archive/html/gpsd-users/2020-04/msg00093.html](https://lists.nongnu.org/archive/html/gpsd-users/2020-04/msg00093.html)  
 [https://lists.nongnu.org/archive/html/gpsd-users/2021-06/msg00017.html](https://lists.nongnu.org/archive/html/gpsd-users/2021-06/msg00017.html)  
