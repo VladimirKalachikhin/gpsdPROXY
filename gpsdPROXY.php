@@ -25,7 +25,7 @@ if(IRun()) { 	// Я ли?
 	return;
 }
 
-$greeting = '{"class":"VERSION","release":"gpsdPROXY_0","rev":"alpha","proto_major":0,"proto_minor":1}';
+$greeting = '{"class":"VERSION","release":"gpsdPROXY_0","rev":"beta","proto_major":0,"proto_minor":1}';
 $SEEN_GPS = 0x01; $SEEN_AIS = 0x08;
 $gpsdProxydevice = array(
 'class' => 'DEVICE',
@@ -53,27 +53,31 @@ echo "Handshaked, will recieve data from gpsd\n";
 
 $messages = array(); 	// массив сокет => сообщение номеров сокетов подключившихся клиентов
 
-$socksRead = array(); $socksWrite = array(); $socksError = NULL; 	// массивы для изменивших состояние сокетов (с учётом, что они в socket_select() по ссылке, и NULL прямо указать нельзя)
+$socksRead = array(); $socksWrite = array(); $socksError = array(); 	// массивы для изменивших состояние сокетов (с учётом, что они в socket_select() по ссылке, и NULL прямо указать нельзя)
 echo "Ready to connection from $gpsdProxyHost:$gpsdProxyPort\n";
 $msg = '';
 do {
-	$startTime = microtime(TRUE);
+	//$startTime = microtime(TRUE);
 	$socksRead = $sockets; 	// мы собираемся читать все сокеты
 	$socksRead[] = $masterSock; 	// 
 	$socksRead[] = $gpsdSock; 	// 
 	// сокет всегда готов для чтения, есть там что-нибудь или нет, поэтому если в socksWrite что-то есть, socket_select никогда не ждёт, возвращая socksWrite неизменённым
-	foreach($messages as $n => $data){
+	$socksWrite = array(); 	// очистим массив 
+	foreach($messages as $n => $data){ 	// пишем только в сокеты, полученные от masterSock путём socket_accept
 		if($data['output'])	$socksWrite[] = $sockets[$n]; 	// если есть, что писать -- добавим этот сокет в те, в которые будем писать
 	}
+	$socksError = $sockets; 	// 
+	$socksError[] = $masterSock; 	// 
+	$socksError[] = $gpsdSock; 	// 
+
 	//echo "\n\nНачало. Ждём, пока что-нибудь произойдёт";
-	//echo "\nBEFORE socket_select:\nsocksRead"; print_r($socksRead);print "socksWrite";print_r($socksWrite);
 	$num_changed_sockets = socket_select($socksRead, $socksWrite, $socksError, null); 	// должно ждать
 	// теперь в $socksRead только те сокеты, куда пришли данные, в $socksWrite -- те, откуда НЕ считали
-	//echo "AFTER socket_select:\nsocksRead"; print_r($socksRead);print "socksWrite";print_r($socksWrite);
-	if ($num_changed_sockets === false) {
-		echo "Error on sockets: " . socket_strerror(socket_last_error()) . "\n";
-		//continue;
-		exit();
+	if (count($socksError)) { 	// Warning не перехватываются
+		echo "socket_select: Error on sockets: " . socket_strerror(socket_last_error()) . "\n";
+		foreach($socksError as $socket){
+			chkSocks($socket);
+		}
 	}
 
 	//echo "\nЧитаем из сокетов ".count($socksRead)."\n";
@@ -81,47 +85,23 @@ do {
 		//if($socket == $gpsdSock) echo "Read: gpsd socket\n";
 		if($socket == $masterSock) { 	// новое подключение
 			$sock = socket_accept($socket); 	// новый сокет для подключившегося клиента
-			if(!$sock) {
+			if(!$sock or (get_resource_type($sock) != 'Socket')) {
 				echo "Failed to accept incoming by: " . socket_strerror(socket_last_error($socket)) . "\n";
-				$i = array_search($masterSock,$sockets);
-				unset($sockets[$i]);
-			    socket_close($masterSock);
-				$masterSock = createSocketServer($gpsdProxyHost,$gpsdProxyPort,20); 	// Входное соединение
+				chkSocks($socket); 	// recreate masterSock
 				continue;
 			}
 			$sockets[] = $sock; 	// добавим новое входное подключение к имеющимся соединениям
 			$n = array_search($sock,$sockets);	// Resource id не может быть ключём массива, поэтому используем порядковый номер. Что стрёмно.
-			$messages[$n]['output'] = $greeting; 	// 	
+			$messages[$n]['output'][] = $greeting; 	// 	
 			//echo "New client connected!                                                        \n";
 		    continue; 	// 
 		}
-		$buf = socket_read($socket, 2048, PHP_NORMAL_READ); 	// читаем
+		$buf = @socket_read($socket, 2048, PHP_NORMAL_READ); 	// читаем
 		#echo "\nbuf=$buf|\n";
 		
 		if($buf === FALSE) { 	// клиент умер
-			echo "\nFailed to read data by: " . socket_strerror(socket_last_error($socket)) . "\n";
-			if($socket == $gpsdSock){ 	// умерло соединение с gpsd
-				echo "\nGPSD socket die. Try to reconnect.\n";
-				socket_close($gpsdSock);
-				$gpsdSock = createSocketClient($gpsdProxyGPSDhost,$gpsdProxyGPSDport); 	// Соединение с gpsd
-				echo "Socket to gpsd reopen, do handshaking\n";
-				$devicePresent = connectToGPSD($gpsdSock);
-				echo "Handshaked, will recieve data from gpsd\n";
-			}
-			elseif($socket == $masterSock){ 	// умерло входящее подключение
-				echo "\nIncoming socket die. Try to recreate.\n";
-			    socket_close($masterSock);
-				$masterSock = createSocketServer($gpsdProxyHost,$gpsdProxyPort,20); 	// Входное соединение
-			}
-			else {
-				foreach($sockets as $i => $sock){
-					if($sock == $socket){
-						unset($sockets[$i]);
-						break;
-					}
-				}
-				socket_close($socket);
-			}
+			echo "\n\nFailed to read data from socket by: " . socket_strerror(socket_last_error($socket)) . "\n";
+			chkSocks($socket);
 		    continue;
 		}
 		
@@ -161,7 +141,7 @@ do {
 					$msg = json_encode($msg);
 					// вернуть статус WATCH
 					$msg .= "\n".'{"class":"WATCH","enable":"true","json":"true"}';
-					$messages[$sockKey]['output'] = $msg;
+					$messages[$sockKey]['output'][] = $msg;
 				}
 				elseif($params['enable'] == FALSE){ 	// клиент сказал: всё
 					socket_close($socket);
@@ -192,32 +172,27 @@ do {
 						$POLL["ais"][$data['data']['mmsi']] = $data['data'];
 					}
 				}
-				$messages[$sockKey]['output'] = json_encode($POLL);
+				$messages[$sockKey]['output'][] = json_encode($POLL); 	// будем копить сообщения, вдруг клиент не готов их принять
 				break;
 			}
 		}
 	}
 	
 	//echo "Пишем в сокеты ".count($socksWrite)."\n";
+	// Здесь пишется в сокеты то, что попало в $messages на предыдущем обороте. Тогда соответствующие сокеты проверены на готовность, и готовые попали в $socksWrite. 
 	foreach($socksWrite as $socket){
 		$n = array_search($socket,$sockets);	// 
-		$msg = $messages[$n]['output']."\n";
-		$res = socket_write($socket, $msg, strlen($msg));
-		if($res === FALSE) { 	// клиент умер
-			echo "\nFailed to write data to by: " . socket_strerror(socket_last_error($sock)) . "\n";
-			foreach($sockets as $i => $sock){
-				if($sock == $socket){
-					unset($sockets[$i]);
-					break;
-				}
+		foreach($messages[$n]['output'] as $msg) { 	// все накопленные сообщения
+			$msg = $msg."\n";
+			$res = socket_write($socket, $msg, strlen($msg));
+			if($res === FALSE) { 	// клиент умер
+				echo "\n\nFailed to write data to socket by: " . socket_strerror(socket_last_error($sock)) . "\n";
+				chkSocks($socket);
+				continue 2;
 			}
-			unset($messages[$n]);
-			socket_close($socket);
-			continue;
 		}
-		$messages[$n]['output'] = '';
+		$messages[$n]['output'] = array();
 	}
-	$socksWrite = array(); 	// очистим массив 
 	
 	echo "Has ".(count($sockets))." client socks, and master and gpsd cocks. Ready ".count($socksRead)." read and ".count($socksWrite)." write socks\r";
 	//echo "Connected ".(count($sockets))." clients. Ready ".count($socksRead)." read sockets          \r";
@@ -556,4 +531,32 @@ case 'AIS':
 //echo "\n gpsdData AIS\n"; print_r($gpsdData['AIS']);
 } // end function updGPSDdata
 
+function chkSocks($socket) {
+/**/
+global $gpsdSock, $masterSock, $sockets, $socksRead, $socksWrite, $messages;
+if($socket == $gpsdSock){ 	// умерло соединение с gpsd
+	echo "\nGPSD socket die. Try to reconnect.\n";
+	socket_close($gpsdSock);
+	$gpsdSock = createSocketClient($gpsdProxyGPSDhost,$gpsdProxyGPSDport); 	// Соединение с gpsd
+	echo "Socket to gpsd reopen, do handshaking\n";
+	$devicePresent = connectToGPSD($gpsdSock);
+	echo "Handshaked, will recieve data from gpsd\n";
+}
+elseif($socket == $masterSock){ 	// умерло входящее подключение
+	echo "\nIncoming socket die. Try to recreate.\n";
+	socket_close($masterSock);
+	$masterSock = createSocketServer($gpsdProxyHost,$gpsdProxyPort,20); 	// Входное соединение
+}
+else {
+	$n = array_search($socket,$sockets);	// 
+	unset($sockets[$n]);
+	unset($messages[$n]);
+	$n = array_search($socket,$socksRead);	// 
+	unset($socksRead[$n]);
+	$n = array_search($socket,$socksWrite);	// 
+	unset($socksWrite[$n]);
+	socket_close($socket);
+}
+//echo "\nchkSocks sockets: "; print_r($sockets);
+} // end function chkSocks
 ?>
