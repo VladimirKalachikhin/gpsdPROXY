@@ -242,8 +242,10 @@ foreach($psList as $str) {
 return $run;
 }
 
-function createSocketServer($host,$port,$connections=1){
-/* создаёт сокет, соединенный с $host,$port */
+function createSocketServer($host,$port,$connections=2){
+/* создаёт сокет, соединенный с $host,$port на своей машине, для приёма входящих соединений 
+в Ubuntu $connections = 0 означает максимально возможное количество соединений, а в Raspbian (Debian?) действительно 0
+*/
 $sock = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
 if(!$sock) {
 	echo "Failed to create server socket by reason: " . socket_strerror(socket_last_error()) . "\n";
@@ -263,7 +265,7 @@ if(!$res) {
 	//return FALSE;
 	exit('1');
 }
-$res = socket_listen($sock); 	// 
+$res = socket_listen($sock,$connections); 	// 
 if(!$res) {
 	echo "Failed listennig by: " . socket_strerror(socket_last_error($sock)) . "\n";
 	//return FALSE;
@@ -275,7 +277,7 @@ return $sock;
 
 
 function createSocketClient($host,$port){
-/* создаёт сокет для приёма соединений на $host,$port */
+/* создаёт сокет, соединенный с $host,$port на другом компьютере */
 $sock = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
 if(!$sock) {
 	echo "Failed to create client socket by reason: " . socket_strerror(socket_last_error()) . "\n";
