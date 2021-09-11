@@ -74,7 +74,7 @@ do {
 	$socksError[] = $gpsdSock; 	// 
 
 	//echo "\n\nНачало. Ждём, пока что-нибудь произойдёт";
-	
+	/*
 	$old_error_handler = set_error_handler(function ($severity, $message, $file, $line) {
 		global $sockets,$socksRead,$socksWrite,$socksError;
 		echo "\nError\n";
@@ -86,7 +86,7 @@ do {
 		foreach($sockets as $id => $sock){
 			echo "$id ".gettype($sock)."\n";
 		}
-		/*
+		
 		echo "socksRead\n";
 		foreach($socksRead as $id => $sock){
 			echo "$id ".gettype($sock)."\n";
@@ -99,13 +99,13 @@ do {
 		foreach($socksError as $id => $sock){
 			echo "$id ".gettype($sock)."\n";
 		}
-		*/
+		
 		exit;
 	});
-		
+	*/
 	$num_changed_sockets = socket_select($socksRead, $socksWrite, $socksError, null); 	// должно ждать
 
-	restore_error_handler();
+	//restore_error_handler();
 
 	// теперь в $socksRead только те сокеты, куда пришли данные, в $socksWrite -- те, откуда НЕ считали
 	if (count($socksError)) { 	// Warning не перехватываются
@@ -361,7 +361,7 @@ do { 	// при каскадном соединении нескольких gps
 	$buf = @socket_read($gpsdSock, 2048, PHP_NORMAL_READ); 	// читаем
 	//echo "\nbuf:$buf|\n";
 	if($buf === FALSE) { 	// gpsd умер
-		echo "\nFailed to read data from gpsd: " . socket_strerror(socket_last_error()) . "\n";
+		//echo "\nFailed to read data from gpsd: " . socket_strerror(socket_last_error()) . "\n";
 		chkSocks($gpsdSock);
 		//exit();
 		return FALSE;
@@ -450,6 +450,13 @@ case 'netAIS':
 		foreach($data as $type => $value){
 			$gpsdData['AIS'][$vehicle]['data'][$type] = $value; 	// 
 			$gpsdData['AIS'][$vehicle]['cachedTime'][$type] = $timestamp;
+		}
+		foreach($gpsdData['AIS'][$vehicle]['cachedTime'] as $type => $cachedTime){ 	// поищем, не протухло ли чего
+			if(($gpsdData['AIS'][$vehicle]['data'][$type] !== NULL) and $gpsdProxyTimeouts['AIS'][$type] and (($now - $cachedTime) > $gpsdProxyTimeouts['AIS'][$type])) {
+				//echo "\n gpsdData\n"; print_r($gpsdData$gpsdData['AIS'][$vehicle]['data']);
+				$gpsdData['AIS'][$vehicle]['data'][$type] = NULL;
+				//echo "Данные AIS".$type." для судна ".$vehicle." протухли.                                       \n";
+			}
 		}
 	}
 	break;
