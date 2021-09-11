@@ -1,9 +1,11 @@
 <?php
 /* Демон.
 Кеширует данные TPV и AIS от gpsd, и отдаёт их по запросу ?POLL; протокола gpsd
+При этом все устройства -- источники данных всё время работы демона остаются активными и потребляющими электричество.
 
 Daemon
 Caches TPV and AIS data from gpsd, and returns them on request ?POLL; of the gpsd protocol
+As side: daemon keeps instruments alive and power consuming.  
 
 Зачем это надо: 
 Details:
@@ -25,7 +27,7 @@ if(IRun()) { 	// Я ли?
 	return;
 }
 
-$greeting = '{"class":"VERSION","release":"gpsdPROXY_0","rev":"beta","proto_major":0,"proto_minor":1}';
+$greeting = '{"class":"VERSION","release":"gpsdPROXY_0","rev":"beta","proto_major":2,"proto_minor":0}';
 $SEEN_GPS = 0x01; $SEEN_AIS = 0x08;
 $gpsdProxydevice = array(
 'class' => 'DEVICE',
@@ -49,6 +51,7 @@ $gpsdSock = createSocketClient($gpsdProxyGPSDhost,$gpsdProxyGPSDport); 	// Со�
 // Подключимся к gpsd
 echo "Socket to gpsd opened, do handshaking\n";
 $devicePresent = connectToGPSD($gpsdSock);
+if(!$devicePresent) exit("gpsd not run or no required devices present, bye     \n");
 echo "Handshaked, will recieve data from gpsd\n";
 
 $messages = array(); 	// массив сокет => сообщение номеров сокетов подключившихся клиентов
@@ -100,29 +103,36 @@ do {
 		#echo "\nbuf=$buf|\n";
 		
 		if($buf === FALSE) { 	// клиент умер
-			echo "\n\nFailed to read data from socket by: " . socket_strerror(socket_last_error($socket)) . "\n";
+			//echo "\n\nFailed to read data from socket by: " . socket_strerror(socket_last_error($socket)) . "\n"; 	// в общем-то -- обычное дело. Клиент закрывает соединение, сы об этом узнаём при попытке чтения
 			chkSocks($socket);
 		    continue;
 		}
 		
 		// Собственно, содержательная часть
 		//echo "\nПринято:$buf|\n"; 	// здесь что-то прочитали из какого-то сокета
-		if($socket == $gpsdSock){ 	// прочитали из соединения с gpsd
+		$sockKey = array_search($socket,$sockets); 	// 
+		if(($socket == $gpsdSock) or ($messages[$sockKey]['PUT'] == TRUE)){ 	// прочитали из соединения с gpsd или это сокет, с которого шлют данные
 			$inGpsdData = json_decode($buf,TRUE);
+			// А оно надо? Здесь игнорируются устройства, не представленные на этапе установления соединения 
+			// в ответ на WATCH. А вновь подключенные?
+			/*
 			if(!in_array($inGpsdData['device'],$devicePresent)) {  	// это не то устройство, которое потребовали
 				continue;
 			}
+			*/
 			//echo "\n inGpsdData\n"; print_r($inGpsdData);
 			// Ok, мы получили требуемое
+			//if($messages[$sockKey]['PUT'] == TRUE) {
+			//	echo "\n Другой источник данных:	\n"; print_r($inGpsdData);
+			//}
 			updGPSDdata($inGpsdData);
 			//echo "\n gpsdData\n"; print_r($gpsdData);
 		}
 		else{ 	// прочитали из клиентского соединения
-			$sockKey = array_search($socket,$sockets); 	// 
 			$buf = trim($buf);
 			//echo "\nПРИНЯТО ОТ КЛИЕНТА:\n$buf\n";
-			if($buf[0]!='?'){
-				continue; 	// это не команда
+			if($buf[0]!='?'){ 	// это не команда
+				continue;
 			}
 			// выделим команду и параметры
 			list($command,$params) = explode('=',$buf);
@@ -133,7 +143,7 @@ do {
 			// Обработаем команду
 			switch($command){
 			case 'WATCH': 	// default: ?WATCH={"enable":true};
-				if(count($params)>1) continue 2; 	// мы понимаем только ?WATCH={"enable":true} и ?WATCH={"enable":false}
+				if(!$params or count($params)!=1) continue 2; 	// мы понимаем только ?WATCH={"enable":true} и ?WATCH={"enable":false}
 				if($params['enable'] == TRUE){
 					$messages[$sockKey]['POLL'] = TRUE; 	//
 					// вернуть DEVICES
@@ -173,6 +183,19 @@ do {
 					}
 				}
 				$messages[$sockKey]['output'][] = json_encode($POLL); 	// будем копить сообщения, вдруг клиент не готов их принять
+				break;
+			case 'CONNECT':
+				//echo "\nrecieved CONNECT !\n";
+				if(@$params['host'] and @$params['port']) { 	// указано подключиться туда
+				}
+				else { 	// данные будут из этого сокета
+					//echo "\nby CONNECT, begin handshaking\n";
+					$newDevices = connectToGPSD($socket);
+					if(!$newDevices) break;
+					$messages[$sockKey]['PUT'] = TRUE; 	//
+					$devicePresent = array_unique(array_merge($devicePresent,$newDevices));
+					//echo "\nCONNECT !\n";
+				}
 				break;
 			}
 		}
@@ -300,21 +323,24 @@ $SEEN_GPS = 0x01; $SEEN_AIS = 0x08;
 $controlClasses = array('VERSION','DEVICES','DEVICE','WATCH');
 $WATCHsend = FALSE;
 $dataType = $SEEN_GPS | $SEEN_AIS; 	// данные от каких приборов будем принимать от gpsd
-//print "dataType=$dataType;\n";
+//echo "dataType=$dataType;\n";
+//echo "\nBegin handshaking with gpsd\n";
 do { 	// при каскадном соединении нескольких gpsd заголовков может быть много
 	$buf = socket_read($gpsdSock, 2048, PHP_NORMAL_READ); 	// читаем
 	//echo "\nbuf:$buf|\n";
 	if($buf === FALSE) { 	// gpsd умер
-		echo "Failed to read data from gpsd: " . socket_strerror(socket_last_error()) . "\n";
+		echo "\nFailed to read data from gpsd: " . socket_strerror(socket_last_error()) . "\n";
 	    socket_close($gpsdSock);
-		exit();
+		//exit();
+		return FALSE;
 	}
 	if (!$buf = trim($buf)) {
 		continue;
 	}
 	$buf = json_decode($buf,TRUE);
 	switch($buf['class']){
-	case 'VERSION': 	// можно получить от slave gpsd посде WATCH
+	case 'VERSION': 	// можно получить от slave gpsd после WATCH
+		//echo "\nReceived VERSION\n";
 		if(!$WATCHsend) { 	// команды WATCH ещё не посылали
 			$params = array(
 				"enable"=>TRUE,
@@ -326,18 +352,19 @@ do { 	// при каскадном соединении нескольких gps
 			$res = socket_write($gpsdSock, $msg, strlen($msg));
 			if($res === FALSE) { 	// gpsd умер
 				socket_close($gpsdSock);
-				echo "Failed to send WATCH to gpsd: " . socket_strerror(socket_last_error()) . "\n";
-				exit();
+				echo "\nFailed to send WATCH to gpsd: " . socket_strerror(socket_last_error()) . "\n";
+				//exit();
+				return FALSE;
 			}
 			$WATCHsend = TRUE;
-			echo "Sending TURN ON\n";
+			//echo "Sending TURN ON\n";
 		}
 		break;
 	case 'DEVICES': 	// соберём подключенные устройства со всех gpsd, включая slave
-		//echo "Received DEVICES\n"; //
+		//echo "\nReceived DEVICES\n"; //
 		$devicePresent = array();
 		foreach($buf["devices"] as $device) {
-			echo "Checked device with dataType $dataType:".($device['flags']&$dataType)."\n";
+			//echo "\nChecked device with dataType $dataType:".($device['flags']&$dataType)."\n";
 			if($device['flags']&$dataType) $devicePresent[] = $device['path']; 	// список требуемых среди обнаруженных и понятых устройств.
 		}
 		break;
@@ -345,16 +372,17 @@ do { 	// при каскадном соединении нескольких gps
 		//echo "Received about slave DEVICE<br>\n"; //
 		break;
 	case 'WATCH': 	// 
-		//echo "Received WATCH<br>\n"; //
+		//echo "Received WATCH\n"; //
 		//print_r($gpsdWATCH); //
 		break 2; 	// приветствие завершилось
 	}
 	
-}while($WATCHsend or in_array($buf['class'],$controlClasses));
+}while($WATCHsend or in_array(@$buf['class'],$controlClasses));
 //echo "buf: "; print_r($buf);
 if(!$devicePresent) {
-	echo "no required devices present, exiting\n";
-	exit();
+	echo "\nno required devices present\n";
+	//exit();
+	return FALSE;
 }
 $devicePresent = array_unique($devicePresent);
 return $devicePresent;
@@ -379,6 +407,17 @@ case 'TPV':
 			//echo "\n gpsdData\n"; print_r($gpsdData['TPV'][$inGpsdData['device']]['data']);
 			$gpsdData['TPV'][$inGpsdData['device']]['data'][$type] = NULL;
 			//echo "Данные ".$type." от устройства ".$inGpsdData['device']." протухли.                     \n";
+		}
+	}
+	break;
+case 'netAIS':
+	foreach($inGpsdData['data'] as $vehicle => $data){
+		$timestamp = $data['timestamp'];
+		if(!$timestamp) $timestamp = $now;
+		$gpsdData['AIS'][$vehicle]['timestamp'] = $timestamp;
+		foreach($data as $type => $value){
+			$gpsdData['AIS'][$vehicle]['data'][$type] = $value; 	// 
+			$gpsdData['AIS'][$vehicle]['cachedTime'][$type] = $timestamp;
 		}
 	}
 	break;
@@ -535,14 +574,16 @@ case 'AIS':
 
 function chkSocks($socket) {
 /**/
-global $gpsdSock, $masterSock, $sockets, $socksRead, $socksWrite, $messages;
+global $gpsdSock, $masterSock, $sockets, $socksRead, $socksWrite, $socksError, $messages, $devicePresent;
 if($socket == $gpsdSock){ 	// умерло соединение с gpsd
 	echo "\nGPSD socket die. Try to reconnect.\n";
 	socket_close($gpsdSock);
 	$gpsdSock = createSocketClient($gpsdProxyGPSDhost,$gpsdProxyGPSDport); 	// Соединение с gpsd
 	echo "Socket to gpsd reopen, do handshaking\n";
-	$devicePresent = connectToGPSD($gpsdSock);
-	echo "Handshaked, will recieve data from gpsd\n";
+	$newDevices = connectToGPSD($gpsdSock);
+	if(!$newDevices) exit("gpsd not run or no required devices present, bye       \n");
+	$devicePresent = array_unique(array_merge($devicePresent,$newDevices));
+	echo "New handshaking, will recieve data from gpsd\n";
 }
 elseif($socket == $masterSock){ 	// умерло входящее подключение
 	echo "\nIncoming socket die. Try to recreate.\n";
@@ -557,6 +598,8 @@ else {
 	unset($socksRead[$n]);
 	$n = array_search($socket,$socksWrite);	// 
 	unset($socksWrite[$n]);
+	$n = array_search($socket,$socksError);	// 
+	unset($socksError[$n]);
 	socket_close($socket);
 }
 //echo "\nchkSocks sockets: "; print_r($sockets);
