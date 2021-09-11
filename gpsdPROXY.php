@@ -74,7 +74,39 @@ do {
 	$socksError[] = $gpsdSock; 	// 
 
 	//echo "\n\nНачало. Ждём, пока что-нибудь произойдёт";
+	
+	$old_error_handler = set_error_handler(function ($severity, $message, $file, $line) {
+		global $sockets,$socksRead,$socksWrite,$socksError;
+		echo "\nError\n";
+		echo "$severity, $message, $file, $line\n";
+		//echo "socksRead\n"; print_r($socksRead);
+		//echo "socksWrite\n"; print_r($socksWrite);
+		//echo "socksError\n"; print_r($socksError);
+		echo "sockets\n";
+		foreach($sockets as $id => $sock){
+			echo "$id ".gettype($sock)."\n";
+		}
+		/*
+		echo "socksRead\n";
+		foreach($socksRead as $id => $sock){
+			echo "$id ".gettype($sock)."\n";
+		}
+		echo "socksWrite\n";
+		foreach($socksWrite as $id => $sock){
+			echo "$id ".gettype($sock)."\n";
+		}
+		echo "socksError\n";
+		foreach($socksError as $id => $sock){
+			echo "$id ".gettype($sock)."\n";
+		}
+		*/
+		exit;
+	});
+		
 	$num_changed_sockets = socket_select($socksRead, $socksWrite, $socksError, null); 	// должно ждать
+
+	restore_error_handler();
+
 	// теперь в $socksRead только те сокеты, куда пришли данные, в $socksWrite -- те, откуда НЕ считали
 	if (count($socksError)) { 	// Warning не перехватываются
 		echo "socket_select: Error on sockets: " . socket_strerror(socket_last_error()) . "\n";
@@ -326,11 +358,11 @@ $dataType = $SEEN_GPS | $SEEN_AIS; 	// данные от каких прибор
 //echo "dataType=$dataType;\n";
 //echo "\nBegin handshaking with gpsd\n";
 do { 	// при каскадном соединении нескольких gpsd заголовков может быть много
-	$buf = socket_read($gpsdSock, 2048, PHP_NORMAL_READ); 	// читаем
+	$buf = @socket_read($gpsdSock, 2048, PHP_NORMAL_READ); 	// читаем
 	//echo "\nbuf:$buf|\n";
 	if($buf === FALSE) { 	// gpsd умер
 		echo "\nFailed to read data from gpsd: " . socket_strerror(socket_last_error()) . "\n";
-	    socket_close($gpsdSock);
+		chkSocks($gpsdSock);
 		//exit();
 		return FALSE;
 	}
@@ -351,7 +383,7 @@ do { 	// при каскадном соединении нескольких gps
 			$msg = '?WATCH='.json_encode($params)."\n"; 	// велим gpsd включить устройства и посылать информацию
 			$res = socket_write($gpsdSock, $msg, strlen($msg));
 			if($res === FALSE) { 	// gpsd умер
-				socket_close($gpsdSock);
+				chkSocks($gpsdSock);
 				echo "\nFailed to send WATCH to gpsd: " . socket_strerror(socket_last_error()) . "\n";
 				//exit();
 				return FALSE;
@@ -592,6 +624,7 @@ elseif($socket == $masterSock){ 	// умерло входящее подключ
 }
 else {
 	$n = array_search($socket,$sockets);	// 
+	//echo "\nError in socket with # $n ant type ".gettype($socket)."\n";
 	unset($sockets[$n]);
 	unset($messages[$n]);
 	$n = array_search($socket,$socksRead);	// 
