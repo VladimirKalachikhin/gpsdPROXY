@@ -26,7 +26,7 @@ if(IRun()) { 	// Я ли?
 	echo "I'm already running, exiting.\n"; 
 	return;
 }
-
+// Self data
 $greeting = '{"class":"VERSION","release":"gpsdPROXY_0","rev":"beta","proto_major":2,"proto_minor":2}';
 $SEEN_GPS = 0x01; $SEEN_AIS = 0x08;
 $gpsdProxydevice = array(
@@ -37,6 +37,7 @@ $gpsdProxydevice = array(
 'stopbits' => 1
 );
 $gpsdData = array(); 	// собственно, собираемые / кешируемые данные
+$noGPSDtimeout = 60; 	// 
 
 if(!$gpsdProxyHost) $gpsdProxyHost='localhost'; 	// я сам. Хост/порт для обращения к gpsdProxy
 if(!$gpsdProxyPort) $gpsdProxyPort=3838;
@@ -274,25 +275,16 @@ global $phpCLIexec;
 $pid = getmypid();
 //echo "pid=$pid\n";
 //echo "ps -A w | grep '".pathinfo(__FILE__,PATHINFO_BASENAME)." -s$netAISserverURI'\n";
-exec("ps -A w | grep '".pathinfo(__FILE__,PATHINFO_BASENAME)."'",$psList);
+$toFind = pathinfo(__FILE__,PATHINFO_BASENAME);
+exec("ps -A w | grep '$toFind'",$psList);
 if(!$psList) exec("ps w | grep '".pathinfo(__FILE__,PATHINFO_BASENAME)."'",$psList); 	// for OpenWRT. For others -- let's hope so all run from one user
 //print_r($psList); //
 $run = FALSE;
 foreach($psList as $str) {
 	if(strpos($str,(string)$pid)!==FALSE) continue;
-	$str = explode(' ',trim($str)); 	// массив слов
-	foreach($str as $w) {
-		switch($w){
-		case 'watch':
-		case 'ps':
-		case 'grep':
-		case 'sh':
-		case 'bash': 	// если встретилось это слово -- это не та строка
-			break 2;
-		case $phpCLIexec:
-			$run=TRUE;
-			break 3;
-		}
+	if((strpos($str,'php ')!==FALSE) and (strpos($str,$toFind)!==FALSE)){
+		$run=TRUE;
+		break;
 	}
 }
 return $run;
@@ -438,7 +430,8 @@ case 'TPV':
 	foreach($gpsdData['TPV'][$inGpsdData['device']]['cachedTime'] as $type => $cachedTime){ 	// поищем, не протухло ли чего
 		if(($gpsdData['TPV'][$inGpsdData['device']]['data'][$type] !== NULL) and $gpsdProxyTimeouts['TPV'][$type] and (($now - $cachedTime) > $gpsdProxyTimeouts['TPV'][$type])) {
 			//echo "\n gpsdData\n"; print_r($gpsdData['TPV'][$inGpsdData['device']]['data']);
-			$gpsdData['TPV'][$inGpsdData['device']]['data'][$type] = NULL;
+			//$gpsdData['TPV'][$inGpsdData['device']]['data'][$type] = NULL;
+			unset($gpsdData['TPV'][$inGpsdData['device']]['data'][$type]);
 			//echo "Данные ".$type." от устройства ".$inGpsdData['device']." протухли.                     \n";
 		}
 	}
@@ -455,7 +448,8 @@ case 'netAIS':
 		foreach($gpsdData['AIS'][$vehicle]['cachedTime'] as $type => $cachedTime){ 	// поищем, не протухло ли чего
 			if(($gpsdData['AIS'][$vehicle]['data'][$type] !== NULL) and $gpsdProxyTimeouts['AIS'][$type] and (($now - $cachedTime) > $gpsdProxyTimeouts['AIS'][$type])) {
 				//echo "\n gpsdData\n"; print_r($gpsdData$gpsdData['AIS'][$vehicle]['data']);
-				$gpsdData['AIS'][$vehicle]['data'][$type] = NULL;
+				//$gpsdData['AIS'][$vehicle]['data'][$type] = NULL;
+				unset($gpsdData['AIS'][$vehicle]['data'][$type]);
 				//echo "Данные AIS".$type." для судна ".$vehicle." протухли.                                       \n";
 			}
 		}
@@ -602,7 +596,8 @@ case 'AIS':
 		foreach($gpsdData['AIS'][$vehicle]['cachedTime'] as $type => $cachedTime){ 	// поищем, не протухло ли чего
 			if(($gpsdData['AIS'][$vehicle]['data'][$type] !== NULL) and $gpsdProxyTimeouts['AIS'][$type] and (($now - $cachedTime) > $gpsdProxyTimeouts['AIS'][$type])) {
 				//echo "\n gpsdData\n"; print_r($gpsdData$gpsdData['AIS'][$vehicle]['data']);
-				$gpsdData['AIS'][$vehicle]['data'][$type] = NULL;
+				//$gpsdData['AIS'][$vehicle]['data'][$type] = NULL;
+				unset($gpsdData['AIS'][$vehicle]['data'][$type]);
 				//echo "Данные AIS".$type." для судна ".$vehicle." протухли.                                       \n";
 			}
 		}
