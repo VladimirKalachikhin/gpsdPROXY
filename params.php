@@ -29,14 +29,16 @@ $gpsdProxyTimeouts = array(  	// время в секундах после по�
 	'status' => 86400, 	// Navigational status, one day сутки
 	'accuracy' => 600, 	// Position accuracy
 	'turn' => 7, 	// 
-	'lon' => 60, 	// 
-	'lat' => 60, 	// 
+	'lon' => 600, 	// 
+	'lat' => 600, 	// 
 	'speed' => 60, 	// 
 	'course' => 60, 	// 
 	'heading' => 60, 	// 
 	'maneuver' => 60 	// 
 )
 );
+// время в секундах, в течении которого цель AIS сохраняется в кеше после получения от неё последней информации
+$noVehicleTimeout = 600; 	// seconds, time of continuous absence of the vessel in AIS, when reached - is deleted from the data. "when a ship is moored or at anchor, the position message is only broadcast every 180 seconds;"
 
 // gpsd host and port
 $gpsdProxyGPSDhost = 'localhost';

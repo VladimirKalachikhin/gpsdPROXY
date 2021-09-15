@@ -27,7 +27,7 @@ if(IRun()) { 	// Я ли?
 	return;
 }
 
-$greeting = '{"class":"VERSION","release":"gpsdPROXY_0","rev":"beta","proto_major":2,"proto_minor":0}';
+$greeting = '{"class":"VERSION","release":"gpsdPROXY_0","rev":"beta","proto_major":2,"proto_minor":2}';
 $SEEN_GPS = 0x01; $SEEN_AIS = 0x08;
 $gpsdProxydevice = array(
 'class' => 'DEVICE',
@@ -159,6 +159,7 @@ do {
 			//}
 			updGPSDdata($inGpsdData);
 			//echo "\n gpsdData\n"; print_r($gpsdData);
+			//echo "\n gpsdData AIS\n"; print_r($gpsdData['AIS']);
 		}
 		else{ 	// прочитали из клиентского соединения
 			$buf = trim($buf);
@@ -423,7 +424,7 @@ return $devicePresent;
 
 function updGPSDdata($inGpsdData) {
 /**/
-global $gpsdData,$gpsdProxyTimeouts;
+global $gpsdData,$gpsdProxyTimeouts,$noVehicleTimeout;
 $now = time();
 switch($inGpsdData['class']) {
 case 'SKY':
@@ -607,9 +608,28 @@ case 'AIS':
 		}
 	}
 }
+// if AIS target present?
+if($gpsdData['AIS']) { 	// может не быть
+	foreach($gpsdData['AIS'] as $id => $vehicle){
+		if(($now - $vehicle['timestamp'])>$noVehicleTimeout) unset($gpsdData['AIS'][$id]); 	// удалим цель, последний раз обновлявшуюся давно
+		/*
+		// удалим цель AIS, все контролируемые параметры которой протухли.
+		// но юзер может добавить вечный параметр?
+		$noInfo = TRUE;
+		foreach($gpsdProxyTimeouts['AIS'] as $type){
+			if($vehicle['data'][$type]){
+				$noInfo = FALSE;
+				break;
+			}
+		}
+		if($noInfo) unset($gpsdData['AIS'][$vehicle]); 	
+		*/
+	}
+}
 //echo "\n gpsdData\n"; print_r($gpsdData);
 //echo "\n gpsdData AIS\n"; print_r($gpsdData['AIS']);
 } // end function updGPSDdata
+
 
 function chkSocks($socket) {
 /**/
