@@ -52,7 +52,7 @@ $gpsdSock = createSocketClient($gpsdProxyGPSDhost,$gpsdProxyGPSDport); 	// Со�
 // Подключимся к gpsd
 echo "Socket to gpsd opened, do handshaking\n";
 $devicePresent = connectToGPSD($gpsdSock);
-if(!$devicePresent) exit("gpsd not run or no required devices present, bye     \n");
+if(!$devicePresent) exit("Handshaking fail: gpsd not run or no required devices present, bye     \n");
 echo "Handshaked, will recieve data from gpsd\n";
 
 $messages = array(); 	// массив сокет => сообщение номеров сокетов подключившихся клиентов
@@ -363,6 +363,7 @@ do { 	// при каскадном соединении нескольких gps
 		continue;
 	}
 	$buf = json_decode($buf,TRUE);
+	//echo "buf: "; print_r($buf);
 	switch($buf['class']){
 	case 'VERSION': 	// можно получить от slave gpsd после WATCH
 		//echo "\nReceived VERSION\n";
