@@ -282,7 +282,7 @@ if(!$psList) exec("ps w | grep '".pathinfo(__FILE__,PATHINFO_BASENAME)."'",$psLi
 $run = FALSE;
 foreach($psList as $str) {
 	if(strpos($str,(string)$pid)!==FALSE) continue;
-	if((strpos($str,'php ')!==FALSE) and (strpos($str,$toFind)!==FALSE)){
+	if((strpos($str,"$phpCLIexec ")!==FALSE) and (strpos($str,$toFind)!==FALSE)){
 		$run=TRUE;
 		break;
 	}
