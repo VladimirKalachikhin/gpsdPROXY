@@ -17,8 +17,7 @@ $ nc localhost 3838
 $ cgps localhost:3838
 $ telnet localhost 3838
 */
-$path_parts = pathinfo(__FILE__); // определяем каталог скрипта
-chdir($path_parts['dirname']); // задаем директорию выполнение скрипта
+chdir(__DIR__); // задаем директорию выполнение скрипта
 
 require('params.php'); 	// 
 
