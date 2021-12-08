@@ -1,5 +1,5 @@
 <?php
-$gpsdProxydHost='localhost'; 	//  gpsdPROXY host
+$gpsdProxyHost='localhost'; 	//  gpsdPROXY host
 //$gpsdProxyHost='192.168.10.10'; 	// 
 $gpsdProxyPort=3838; 	// gpsdPROXY port
 
