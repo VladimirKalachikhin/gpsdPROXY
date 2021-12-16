@@ -149,6 +149,7 @@ function updGPSDdata($inGpsdData) {
 /**/
 global $gpsdData,$gpsdProxyTimeouts,$noVehicleTimeout;
 $now = time();
+$updated = array();
 switch($inGpsdData['class']) {	// Notice if $inGpsdData empty
 case 'SKY':
 	break;
@@ -156,6 +157,7 @@ case 'TPV':
 	foreach($inGpsdData as $type => $value){ 	// обновим данные
 		$gpsdData['TPV'][$inGpsdData['device']]['data'][$type] = $value; 	// php создаёт вложенную структуру, это не python
 		$gpsdData['TPV'][$inGpsdData['device']]['cachedTime'][$type] = $now;
+		$updated[] = 'TPV';
 	}
 	// Проверим актуальность всех данных
 	foreach($gpsdData['TPV'][$inGpsdData['device']]['cachedTime'] as $type => $cachedTime){ 	// поищем, не протухло ли чего
@@ -163,6 +165,7 @@ case 'TPV':
 			//echo "\n gpsdData\n"; print_r($gpsdData['TPV'][$inGpsdData['device']]['data']);
 			//$gpsdData['TPV'][$inGpsdData['device']]['data'][$type] = NULL;
 			unset($gpsdData['TPV'][$inGpsdData['device']]['data'][$type]);
+			$updated[] = 'TPV';
 			//echo "Данные ".$type." от устройства ".$inGpsdData['device']." протухли.                     \n";
 		}
 	}
@@ -175,12 +178,14 @@ case 'netAIS':
 		foreach($data as $type => $value){
 			$gpsdData['AIS'][$vehicle]['data'][$type] = $value; 	// 
 			$gpsdData['AIS'][$vehicle]['cachedTime'][$type] = $timestamp;
+			$updated[] = 'AIS';
 		}
 		foreach($gpsdData['AIS'][$vehicle]['cachedTime'] as $type => $cachedTime){ 	// поищем, не протухло ли чего
 			if(($gpsdData['AIS'][$vehicle]['data'][$type] !== NULL) and $gpsdProxyTimeouts['AIS'][$type] and (($now - $cachedTime) > $gpsdProxyTimeouts['AIS'][$type])) {
 				//echo "\n gpsdData\n"; print_r($gpsdData$gpsdData['AIS'][$vehicle]['data']);
 				//$gpsdData['AIS'][$vehicle]['data'][$type] = NULL;
 				unset($gpsdData['AIS'][$vehicle]['data'][$type]);
+				$updated[] = 'AIS';
 				//echo "Данные AIS".$type." для судна ".$vehicle." протухли.                                       \n";
 			}
 		}
@@ -274,6 +279,7 @@ case 'AIS':
 		$gpsdData['AIS'][$vehicle]['cachedTime']['maneuver'] = $now;
 		$gpsdData['AIS'][$vehicle]['data']['raim'] = (int)filter_var($inGpsdData['raim'],FILTER_SANITIZE_NUMBER_INT); 	// RAIM-flag Receiver autonomous integrity monitoring (RAIM) flag of electronic position fixing device; 0 = RAIM not in use = default; 1 = RAIM in use. See Table 50
 		$gpsdData['AIS'][$vehicle]['data']['radio'] = (string)$inGpsdData['radio']; 	// Communication state
+		$updated[] = 'AIS';
 		//break; 	//comment break чтобы netAIS мог посылать информацию типа 5,24 и 6,8 в сообщени типа 1. Но gpsdAISd не имеет дела с netAIS?
 	case 5: 	// http://www.e-navigation.nl/content/ship-static-and-voyage-related-data
 	case 24: 	// Vendor ID не поддерживается http://www.e-navigation.nl/content/static-data-report
@@ -301,6 +307,7 @@ case 'AIS':
 		}
 		$gpsdData['AIS'][$vehicle]['data']['destination'] = filter_var($inGpsdData['destination'],FILTER_SANITIZE_STRING); 	// Destination Maximum 20 characters using 6-bit ASCII; @@@@@@@@@@@@@@@@@@@@ = not available For SAR aircraft, the use of this field may be decided by the responsible administration
 		$gpsdData['AIS'][$vehicle]['data']['dte'] = (int)filter_var($inGpsdData['dte'],FILTER_SANITIZE_NUMBER_INT); 	// DTE Data terminal equipment (DTE) ready (0 = available, 1 = not available = default) (see § 3.3.1)
+		$updated[] = 'AIS';
 		//break; 	// comment break чтобы netAIS мог посылать информацию типа 5,24 и 6,8 в сообщени типа 1
 	case 6: 	// http://www.e-navigation.nl/asm  http://192.168.10.10/gpsd/AIVDM.adoc
 	case 8: 	// 
@@ -320,6 +327,7 @@ case 'AIS':
 		$gpsdData['AIS'][$vehicle]['data']['speed_q'] = (int)filter_var($inGpsdData['speed_q'],FILTER_SANITIZE_NUMBER_INT); 	// Speed inf. quality 0 = low/GNSS (default) 1 = high
 		$gpsdData['AIS'][$vehicle]['data']['course_q'] = (int)filter_var($inGpsdData['course_q'],FILTER_SANITIZE_NUMBER_INT); 	// Course inf. quality 0 = low/GNSS (default) 1 = high
 		$gpsdData['AIS'][$vehicle]['data']['heading_q'] = (int)filter_var($inGpsdData['heading_q'],FILTER_SANITIZE_NUMBER_INT); 	// Heading inf. quality 0 = low/GNSS (default) 1 = high
+		$updated[] = 'AIS';
 		break;
 	}
 
@@ -329,6 +337,7 @@ case 'AIS':
 				//echo "\n gpsdData\n"; print_r($gpsdData$gpsdData['AIS'][$vehicle]['data']);
 				//$gpsdData['AIS'][$vehicle]['data'][$type] = NULL;
 				unset($gpsdData['AIS'][$vehicle]['data'][$type]);
+				$updated[] = 'AIS';
 				//echo "Данные AIS".$type." для судна ".$vehicle." протухли.                                       \n";
 			}
 		}
@@ -337,7 +346,10 @@ case 'AIS':
 // if AIS target present?
 if($gpsdData['AIS']) { 	// может не быть
 	foreach($gpsdData['AIS'] as $id => $vehicle){
-		if(($now - $vehicle['timestamp'])>$noVehicleTimeout) unset($gpsdData['AIS'][$id]); 	// удалим цель, последний раз обновлявшуюся давно
+		if(($now - $vehicle['timestamp'])>$noVehicleTimeout) {
+			unset($gpsdData['AIS'][$id]); 	// удалим цель, последний раз обновлявшуюся давно
+			$updated[] = 'AIS';
+		}
 		/*
 		// удалим цель AIS, все контролируемые параметры которой протухли.
 		// но юзер может добавить вечный параметр?
@@ -348,12 +360,17 @@ if($gpsdData['AIS']) { 	// может не быть
 				break;
 			}
 		}
-		if($noInfo) unset($gpsdData['AIS'][$vehicle]); 	
+		if($noInfo) {
+			unset($gpsdData['AIS'][$vehicle]); 	
+			$updated[] = 'AIS';
+		}
 		*/
 	}
 }
+$updated = array_unique($updated);
 //echo "\n gpsdData\n"; print_r($gpsdData);
 //echo "\n gpsdData AIS\n"; print_r($gpsdData['AIS']);
+return $updated;
 } // end function updGPSDdata
 
 

@@ -22,7 +22,14 @@ $ php gpsdPROXY.php
 Connect to the daemon on host:port from _params.php_ by **gpsd** protocol via BSD socket or websocket.
 
 ## Control
-gpsdPROXY daemon checks whether the instance is already running, and exit if it. 
+gpsdPROXY daemon checks whether the instance is already running, and exit if it.  
+Added some new parameters for commands:
+
+* "subscribe":"TPV|AIS" parameter for ?POLL and ?WATCH={"enable":true,"json":true} commands.  
+This indicates to return TPV or AIS data only, not both. For example:  
+?POLL={"subscribe":"AIS"} return class "POLL" with "ais":[], not with "tpv":[].
+* "minPeriod":"", sec. for WATCH={"enable":true,"json":true} command. Normally the data is sent at the same speed as they come from sensors. Setting this allow get data not more often than after the specified number of seconds. For example:  
+WATCH={"enable":true,"json":true,"minPeriod":"2"} sends data every 2 seconds.
 
 ## Configure
 See _params.php_
@@ -30,7 +37,7 @@ See _params.php_
 ## Output
 The output same as described for **gpsd**, exept:  
 
-* _sky_ array is empty
+* _sky_ array missing
 * time are UNIX timestamp
 * added _ais_ array with key = mmsi and value as described [AIS DUMP FORMATS](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_ais_dump_formats) section, except:  
 

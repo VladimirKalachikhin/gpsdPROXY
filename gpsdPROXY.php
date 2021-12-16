@@ -93,6 +93,40 @@ do {
 		}
 	}
 
+	//echo "Пишем в сокеты ".count($socksWrite)."\n";
+	// Здесь пишется в сокеты то, что попало в $messages на предыдущем обороте. Тогда соответствующие сокеты проверены на готовность, и готовые попали в $socksWrite. 
+	// в ['output'] всегда текст или массив из текста [0] и параметров передачи (для websocket)
+	foreach($socksWrite as $socket){
+		$n = array_search($socket,$sockets);	// 
+		foreach($messages[$n]['output'] as &$msg) { 	// все накопленные сообщения. & для экономии памяти, но что-то не экономится...
+			//echo "to $n:\n|$msg|\n";
+			$msgParams = null;
+			if(is_array($msg)) list($msg,$msgParams) = $msg;	// второй элемент -- тип фрейма
+			switch($messages[$n]['protocol']){
+			case 'WS':
+				$msg = wsEncode($msg,$msgParams);	
+				break;
+			case 'WS handshake':
+				$messages[$n]['protocol'] = 'WS';
+			}
+			
+			$msgLen = strlen($msg);
+			$res = socket_write($socket, $msg, $msgLen);
+			if($res === FALSE) { 	// клиент умер
+				echo "\n\nFailed to write data to socket by: " . socket_strerror(socket_last_error($sock)) . "\n";
+				chkSocks($socket);
+				continue 2;
+			}
+			elseif($res <> $msgLen){	// клиент не принял всё. У него проблемы?
+				echo "\n\nNot all data was writed to socket by: " . socket_strerror(socket_last_error($sock)) . "\n";
+				chkSocks($socket);
+				continue 2;
+			}
+		}
+		$messages[$n]['output'] = array();
+		unset($msg);
+	}
+	
 	//echo "\nЧитаем из сокетов ".count($socksRead)."\n";
 	foreach($socksRead as $socket){
 		//if($socket == $gpsdSock) echo "Read: gpsd socket\n";
@@ -151,13 +185,12 @@ do {
 			//if($messages[$sockKey]['PUT'] == TRUE) {
 			//	echo "\n Другой источник данных:	\n"; print_r($inGpsdData);
 			//}
-			updGPSDdata($inGpsdData);
+			$updated = updGPSDdata($inGpsdData);
 			$POLL = array(	// данные для передачи клиенту, в формате gpsd
 				"class" => "POLL",
 				"time" => time(),
 				"active" => 0,
 				"tpv" => array(),
-				"sky" => array(),
 				"ais" => array()
 			);
 			//echo "\n gpsdData\n"; print_r($gpsdData['TPV']);
@@ -174,19 +207,35 @@ do {
 				}
 			}
 			// Не надо ли что-нибудь сразу отправить?
-			foreach($messages as $n => $data){
-				if($data['POLL'] === 'WATCH'){	// для соответствующего сокета указано посылать непрерывно. === потому что $data['POLL'] на момент сравнения может иметь тип boolean, и при == произойдёт приведение 'WATCH' к boolean;
-					//echo "n=$n; data:"; print_r($data);
-					foreach($POLL["tpv"] as $data){
-						$messages[$n]['output'][] = json_encode($data)."\r\n\r\n";
-					}
-					foreach($POLL["ais"] as $data){
-						$messages[$n]['output'][] = json_encode($data)."\r\n\r\n";
+			if($updated){	// от gpsd (или что там вместо) может прийти пустое или непонятное
+				$now = microtime(true);
+				foreach($messages as $n => $sockData){
+					if($sockData['POLL'] === 'WATCH'){	// для соответствующего сокета указано посылать непрерывно. === потому что $data['POLL'] на момент сравнения может иметь тип boolean, и при == произойдёт приведение 'WATCH' к boolean;
+						if((@$sockData['lastSend']+floatval(@$sockData['minPeriod']))>$now) continue;	// частота отсылки данных
+						$messages[$n]['lastSend'] = $now;
+						//echo "n=$n; sockData:"; print_r($sockData); print_r($updated);
+						if((@$sockData['subscribe']=="TPV") and in_array("TPV",$updated)){
+							foreach($POLL["tpv"] as $data){
+								$messages[$n]['output'][] = json_encode($data)."\r\n\r\n";
+							}
+						}
+						elseif((@$sockData['subscribe']=="AIS") and in_array("AIS",$updated)){
+							foreach($POLL["ais"] as $data){
+								$messages[$n]['output'][] = json_encode($data)."\r\n\r\n";
+							}
+						}
+						elseif(!@$sockData['subscribe']){	// 
+							foreach($POLL["tpv"] as $data){
+								$messages[$n]['output'][] = json_encode($data)."\r\n\r\n";
+							}
+							foreach($POLL["ais"] as $data){
+								$messages[$n]['output'][] = json_encode($data)."\r\n\r\n";
+							}
+						}
 					}
 				}
 			}
 			//echo "\n gpsdData\n"; print_r($gpsdData);
-			//echo "\n gpsdData AIS\n"; print_r($gpsdData['AIS']);
 		}
 		else{ 	// прочитали из клиентского соединения
 			//echo "\nПРИНЯТО ОТ КЛИЕНТА $sockKey:\n|$buf|\n";
@@ -218,7 +267,6 @@ do {
 									chkSocks($socket);	// закроет сокет
 									break 3;
 								}
-								var_dump($decodedData);//var_dump($buf);
 								continue 2;
 							}
 						}
@@ -306,6 +354,8 @@ do {
 					if($params['enable'] == TRUE){
 						if(!$params or count($params)>1){ 	// 
 							$messages[$sockKey]['POLL'] = 'WATCH'; 	// отметим, что WATCH получили в виде, означающем, что это не POLL, надо слать данные непрерывно
+							$messages[$sockKey]['subscribe'] = @$params['subscribe'];
+							$messages[$sockKey]['minPeriod'] = @$params['minPeriod'];
 						}
 						else {
 							$messages[$sockKey]['POLL'] = TRUE; 	// отметим, что WATCH получили, можно отвечать на POLL
@@ -327,8 +377,23 @@ do {
 					break;
 				case 'POLL':
 					if(!$messages[$sockKey]['POLL']) continue 2; 	// на POLL будем отзываться только после ?WATCH={"enable":true}
-					// $POLL заполняется при каждом поступлении от gpsd новых данных
-					$messages[$sockKey]['output'][] = json_encode($POLL)."\r\n\r\n"; 	// будем копить сообщения, вдруг клиент не готов их принять
+					// $POLL заполняется при каждом поступлении от gpsd новых данных					
+					switch(@$params['subscribe']){
+					case "TPV":
+						$tmp = $POLL;
+						unset($tmp["ais"]);
+						$messages[$sockKey]['output'][] = json_encode($tmp)."\r\n\r\n"; 	// будем копить сообщения, вдруг клиент не готов их принять
+						unset($tmp);
+						break;
+					case "AIS":
+						$tmp = $POLL;
+						unset($tmp["tpv"]);
+						$messages[$sockKey]['output'][] = json_encode($tmp)."\r\n\r\n"; 	// будем копить сообщения, вдруг клиент не готов их принять
+						unset($tmp);
+						break;
+					default:
+						$messages[$sockKey]['output'][] = json_encode($POLL)."\r\n\r\n"; 	// будем копить сообщения, вдруг клиент не готов их принять
+					}
 					break;
 				case 'CONNECT':	// подключение к другому gpsd. Используется, например, в netAISclient
 					//echo "\nrecieved CONNECT !\n";
@@ -347,40 +412,6 @@ do {
 				}
 			}
 		}
-	}
-	
-	//echo "Пишем в сокеты ".count($socksWrite)."\n";
-	// Здесь пишется в сокеты то, что попало в $messages на предыдущем обороте. Тогда соответствующие сокеты проверены на готовность, и готовые попали в $socksWrite. 
-	// в ['output'] всегда текст или массив из текста [0] и параметров передачи (для websocket)
-	foreach($socksWrite as $socket){
-		$n = array_search($socket,$sockets);	// 
-		foreach($messages[$n]['output'] as &$msg) { 	// все накопленные сообщения. & для экономии памяти, но что-то не экономится...
-			//echo "to $n:\n|$msg|\n";
-			$msgParams = null;
-			if(is_array($msg)) list($msg,$msgParams) = $msg;	// второй элемент -- тип фрейма
-			switch($messages[$n]['protocol']){
-			case 'WS':
-				$msg = wsEncode($msg,$msgParams);	
-				break;
-			case 'WS handshake':
-				$messages[$n]['protocol'] = 'WS';
-			}
-			
-			$msgLen = strlen($msg);
-			$res = socket_write($socket, $msg, $msgLen);
-			if($res === FALSE) { 	// клиент умер
-				echo "\n\nFailed to write data to socket by: " . socket_strerror(socket_last_error($sock)) . "\n";
-				chkSocks($socket);
-				continue 2;
-			}
-			elseif($res <> $msgLen){	// клиент не принял всё. У него проблемы?
-				echo "\n\nNot all data was writed to socket by: " . socket_strerror(socket_last_error($sock)) . "\n";
-				chkSocks($socket);
-				continue 2;
-			}
-		}
-		$messages[$n]['output'] = array();
-		unset($msg);
 	}
 	
 	echo "Has ".(count($sockets))." client socks, and master and gpsd cocks. Ready ".count($socksRead)." read and ".count($socksWrite)." write socks\r";
