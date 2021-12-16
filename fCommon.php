@@ -34,7 +34,7 @@ if(!$sock) {
 for($i=0;$i<100;$i++) {
 	$res = @socket_bind($sock, $host, $port);
 	if(!$res) {
-		echo "Failed to binding to $host:$port by: " . socket_strerror(socket_last_error($sock)) . ", wait $i\r";
+		echo "Failed to binding to $host:$port by: " . socket_strerror(socket_last_error($sock)) . ", waiting $i\r";
 		sleep(1);
 	}
 	else break;
@@ -130,7 +130,6 @@ do { 	// при каскадном соединении нескольких gps
 		break;
 	case 'WATCH': 	// 
 		//echo "Received WATCH\n"; //
-		//print_r($gpsdWATCH); //
 		break 2; 	// приветствие завершилось
 	}
 	
@@ -378,7 +377,7 @@ elseif($socket == $masterSock){ 	// умерло входящее подключ
 }
 else {
 	$n = array_search($socket,$sockets);	// 
-	echo "Error in client socket with # $n ant type ".gettype($socket)."\n";
+	//echo "Close client socket $n type ".gettype($socket)." by error or by life\n";
 	unset($sockets[$n]);
 	unset($messages[$n]);
 	$n = array_search($socket,$socksRead);	// 
@@ -455,12 +454,13 @@ else {
 }
 
 /**
- * We have to check for large frames here. socket_recv cuts at 1024 (65536?) bytes
+ * We have to check for large frames here. socket_recv cuts at 1024 (65536 65550?) bytes
  * so if websocket-frame is > 1024 bytes we have to wait until whole
  * data is transferd.
  */
 //echo "strlen(data)=".strlen($data)."; dataLength=$dataLength;\n";
 if (strlen($data) < $dataLength) {
+	echo "\nwsDecode: recievd ".strlen($data)." byte, but frame length $dataLength byte. Skip tail, frame bad.\n";
 	return false;	// надо продолжать читать и склеивать двоичное сообщение до $dataLength. Ломает...
 }
 else {
@@ -488,6 +488,7 @@ function wsEncode($payload, $type = 'text', $masked = false){
 /* https://habr.com/ru/post/209864/ 
 Кодирует $payload как один фрейм
 */
+if(!$type) $type = 'text';
 $frameHead = array();
 $payloadLength = strlen($payload);
 

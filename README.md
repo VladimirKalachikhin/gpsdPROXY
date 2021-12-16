@@ -1,5 +1,5 @@
 # gpsdPROXY daemon [![License: CC BY-SA 4.0](https://img.shields.io/badge/License-CC%20BY--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-sa/4.0/)
-**version 0.2**
+**version 0.3**
 
 It is very convenient to access the **[gpsd](https://gpsd.io/)** from web apps with asynchronous request [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) But there are problems:  
 >**First**, the AIS data not available by ?POLL; request.  
@@ -10,13 +10,16 @@ Details and discussion see:
 [https://lists.nongnu.org/archive/html/gpsd-users/2020-04/msg00093.html](https://lists.nongnu.org/archive/html/gpsd-users/2020-04/msg00093.html)  
 [https://lists.nongnu.org/archive/html/gpsd-users/2021-06/msg00017.html](https://lists.nongnu.org/archive/html/gpsd-users/2021-06/msg00017.html)  
 
-This cache/proxy daemon collect AIS and TPV data from **gpsd** during the user-defined lifetime and gives them by [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) request of the **gpsd** protocol.  
-So data from AIS stream and instruments such as echosounder and wind meter become available via ?POLL; request.
+This cache/proxy daemon collect AIS and all TPV data from **gpsd** during the user-defined lifetime and gives them by [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) request of the **gpsd** protocol.  
+So data from AIS stream and instruments such as echosounder and wind meter become available via ?POLL; request.  
+
+In addition, you may use ?WATCH={"enable":true,"json":true} stream, just like from original **gpsd**. The difference is a user-defined "epoch" separately by data type.
 
 ## Usage
 ```
 $ php gpsdPROXY.php
 ```
+Connect to the daemon on host:port from _params.php_ by **gpsd** protocol via BSD socket or websocket.
 
 ## Control
 gpsdPROXY daemon checks whether the instance is already running, and exit if it. 
@@ -25,7 +28,7 @@ gpsdPROXY daemon checks whether the instance is already running, and exit if it.
 See _params.php_
 
 ## Output
-The output same as described for **gpsd** [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) request, exept:  
+The output same as described for **gpsd**, exept:  
 
 * _sky_ array is empty
 * time are UNIX timestamp

@@ -1,5 +1,5 @@
 # gpsdPROXY daemon [![License: CC BY-SA 4.0](https://img.shields.io/badge/License-CC%20BY--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-sa/4.0/)
-**version 0.2**  
+**version 0.3**  
 
 Весьма удобно обращаться к **[gpsd](https://gpsd.io/)** из веб-приложений посредством команды [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) в произвольный момент времени, однако есть проблемы:  
 >**во-первых**, данные AIS недоступны в команде ?POLL;  
@@ -10,13 +10,16 @@
 [https://lists.nongnu.org/archive/html/gpsd-users/2020-04/msg00093.html](https://lists.nongnu.org/archive/html/gpsd-users/2020-04/msg00093.html)  
 [https://lists.nongnu.org/archive/html/gpsd-users/2021-06/msg00017.html](https://lists.nongnu.org/archive/html/gpsd-users/2021-06/msg00017.html)  
 
-Предлагаемый демон собирает данные AIS и то, что передаётся **gpsd** в секции TPV и хранит их в течение указанного пользователем времени. Получить данные можно запросом [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) протокола **gpsd**.  
+Предлагаемый демон собирает данные AIS и всё то, что передаётся **gpsd** в секции TPV и хранит их в течение указанного пользователем времени. Получить данные можно запросом [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) протокола **gpsd**.  
 Таким образом, все данные AIS и данные эхолота и анемометра (и ГПС, конечно) становятся доступными в произвольный момент времени.
+
+Дополнительно реализован и синхронная потоковая отдача данных, аналогичная режиму ?WATCH={"enable":true,"json":true} **gpsd**. Разница в том, что "эпоха" может быть задана пользователем отдельно для каждого типа данных.
 
 ## Использование
 ```
 $ php gpsdPROXY.php
 ```
+К демону можно подключиться через BSD socket или websocket по адресу, указанному в _params.php_.
 
 ## Управление
 Демон проверяет, не запущен ли он уже, и не запускается вторично.
@@ -25,7 +28,7 @@ $ php gpsdPROXY.php
 См. файл _params.php_
 
 ## Результат
-Демон возвращает данные, как описано в команде  [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll), за исключением:  
+Демон возвращает данные, как описано в документации к **gpsd**, за исключением:  
 
 * массив _sky_ пуст
 * время везде UNIX time

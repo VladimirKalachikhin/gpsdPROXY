@@ -27,7 +27,7 @@ if(IRun()) { 	// Я ли?
 	return;
 }
 // Self data
-$greeting = '{"class":"VERSION","release":"gpsdPROXY_0","rev":"beta","proto_major":2,"proto_minor":2}';
+$greeting = '{"class":"VERSION","release":"gpsdPROXY_0","rev":"beta","proto_major":3,"proto_minor":0}';
 $SEEN_GPS = 0x01; $SEEN_AIS = 0x08;
 $gpsdProxydevice = array(
 'class' => 'DEVICE',
@@ -106,7 +106,7 @@ do {
 			$sockets[] = $sock; 	// добавим новое входное подключение к имеющимся соединениям
 			$sockKey = array_search($sock,$sockets);	// Resource id не может быть ключём массива, поэтому используем порядковый номер. Что стрёмно.
 			$messages[$sockKey]['greeting']=FALSE;	// укажем, что приветствие не посылали. Запрос может быть не только как к gpsd, но и как к серверу websocket
-			//echo "New client connected!                                                        \n";
+			//echo "New client connected:$sockKey!                                                      \n";
 		    continue; 	// 
 		}
 		// Читаем сокет
@@ -126,9 +126,10 @@ do {
 			switch($err){
 			case 114:	// Operation already in progress
 			case 115:	// Operation now in progress
-				break;
+			//case 104:	// Connection reset by peer		если клиент сразу закроет сокет, в который он что-то записал, то ещё не переданная часть записанного будет отброшена. Поэтому клиент не закрывает сокет вообще, и он закрывается системой с этим сообщением. Но на этой стороне к моменту получения ошибки уже всё считано?
+			//	break;
 			default:
-				echo "\n\nFailed to read data from socket by: " . socket_strerror(socket_last_error($socket)) . "\n"; 	// в общем-то -- обычное дело. Клиент закрывает соединение, сы об этом узнаём при попытке чтения
+				echo "\n\nFailed to read data from socket $sockKey by: " . socket_strerror(socket_last_error($socket)) . "\n"; 	// в общем-то -- обычное дело. Клиент закрывает соединение, сы об этом узнаём при попытке чтения
 				chkSocks($socket);
 			}
 		    continue;
@@ -173,13 +174,14 @@ do {
 				}
 			}
 			// Не надо ли что-нибудь сразу отправить?
-			foreach($messages as $sockKey => $data){
-				if($data['POLL'] == 'WATCH'){	// для соответствующего сокета указано посылать непрерывно
+			foreach($messages as $n => $data){
+				if($data['POLL'] === 'WATCH'){	// для соответствующего сокета указано посылать непрерывно. === потому что $data['POLL'] на момент сравнения может иметь тип boolean, и при == произойдёт приведение 'WATCH' к boolean;
+					//echo "n=$n; data:"; print_r($data);
 					foreach($POLL["tpv"] as $data){
-						$messages[$sockKey]['output'][] = json_encode($data)."\r\n\r\n";
+						$messages[$n]['output'][] = json_encode($data)."\r\n\r\n";
 					}
 					foreach($POLL["ais"] as $data){
-						$messages[$sockKey]['output'][] = json_encode($data)."\r\n\r\n";
+						$messages[$n]['output'][] = json_encode($data)."\r\n\r\n";
 					}
 				}
 			}
@@ -187,7 +189,7 @@ do {
 			//echo "\n gpsdData AIS\n"; print_r($gpsdData['AIS']);
 		}
 		else{ 	// прочитали из клиентского соединения
-			//echo "\nПРИНЯТО ОТ КЛИЕНТА:\n|$buf|\n";
+			//echo "\nПРИНЯТО ОТ КЛИЕНТА $sockKey:\n|$buf|\n";
 			//print_r($messages[$sockKey]);
 			if($messages[$sockKey]['greeting']===TRUE){ 	// с этим сокетом уже беседуем, значит -- пришли данные	
 				switch($messages[$sockKey]['protocol']){
@@ -201,7 +203,6 @@ do {
 						$n++;
 						//echo "type=$type; FIN=$FIN;|$tail|\n";
 						//echo "$decodedData\n";
-						//exit;
 						if($type != 'text'){
 							switch($type){
 							case 'close':
@@ -211,8 +212,14 @@ do {
 							case 'ping':
 							case 'pong':
 							default:
-								echo "Отброшен фрейм типа $type\n";
-								continue 4;
+								echo "A frame of type '$type' was dropped                                               \n";
+								if($decodedData === NULL){
+									echo "Frame decode fails, will close websocket\n";
+									chkSocks($socket);	// закроет сокет
+									break 3;
+								}
+								var_dump($decodedData);//var_dump($buf);
+								continue 2;
 							}
 						}
 						//echo "type=$type; FIN=$FIN;n=$n;|$tail||$buf|\n";
@@ -228,19 +235,17 @@ do {
 						$messages[$sockKey]['inBuf'] = '';
 						if(strlen($buf)==1) $buf = '';	// ;
 					}
-					//echo "buf=|$buf|\n";
+					//echo "websocket buf=|$buf|\n";
 					if(!$buf) continue 2;
 					break;	// case
 				}
 			}
-			else{ 	// с этим сокетом ещё не беседовали, значит, пришёл заголовок или команда gpsd
+			else{ 	// с этим сокетом ещё не беседовали, значит, пришёл заголовок или команда gpsd или ничего, если сокет просто открыли
 				if(trim($buf[0])!='?'){ 	// это не команда протокола gpsd	PHP Notice:  Uninitialized string offset
 					// разберёмся с заголовком
 					if(!isset($messages[$sockKey]['inBuf'])) $messages[$sockKey]['inBuf'] = '';
 					$messages[$sockKey]['inBuf'] .= "$buf";	// собираем заголовок
-					//$messages[$sockKey]['inBuf'] = str_replace("\r\n","\n",$messages[$sockKey]['inBuf']); 	// строки могут разделяться как \n, так и \r\n, но при PHP_NORMAL_READ reading stops at \n or \r, соотвественно, сперва строка закансивается на \r, а после следующего чтения - на \r\n, и только тогда можно заменить
 					//echo "Собрано:|{$messages[$sockKey]['inBuf']}|";
-					//echo "Собрано:|".strtr($messages[$sockKey]['inBuf'],"\n\r",'!?')."|\n";
 					if(substr($messages[$sockKey]['inBuf'],-2)=="\n\n"){	// конец заголовков (и вообще сообщения) -- пустая строка
 						//echo "Заголовок: |{$messages[$sockKey]['inBuf']}|\n";
 						$messages[$sockKey]['inBuf'] = explode("\n",$messages[$sockKey]['inBuf']);
@@ -250,11 +255,11 @@ do {
 							if($msg[0]=='Sec-WebSocket-Key'){
 								$SecWebSocketAccept = base64_encode(pack('H*',sha1($msg[1].'258EAFA5-E914-47DA-95CA-C5AB0DC85B11')));	// https://datatracker.ietf.org/doc/html/rfc6455#section-1.2 https://habr.com/ru/post/209864/
 							}
-							elseif($msg[0]=='Upgrade' and $msg[1]=='websocket') $messages[$sockKey]['protocol'] = 'WS';	// это запрос на общение по websocket
+							elseif($msg[0]=='Upgrade' and $msg[1]=='websocket') $messages[$sockKey]['protocol'] = 'WS handshake';	// это запрос на общение по websocket
 						}
 						// определился протокол
 						switch($messages[$sockKey]['protocol']){
-						case 'WS':	// ответ за запрос через websocket, в минимальной форме, иначе Chrom не понимает
+						case 'WS handshake':	// ответ за запрос через websocket, в минимальной форме, иначе Chrom не понимает
 							$SecWebSocketAccept = 
 								"HTTP/1.1 101 Switching Protocols\r\n"
 								."Upgrade: websocket\r\n"
@@ -263,8 +268,7 @@ do {
 								."\r\n";			
 							//echo "SecWebSocketAccept=$SecWebSocketAccept;\n";
 							//echo "header sockKey=$sockKey;\n";
-							$messages[$sockKey]['output'] = array($SecWebSocketAccept);	// 
-							$messages[$sockKey]['output'][] = $greeting;	// приветствие gpsd
+							$messages[$sockKey]['output'] = array($SecWebSocketAccept,$greeting);	// 
 							break;
 						default:	// ответ вообще в сокет, как это для протокола gpsd
 							$messages[$sockKey]['output'][] = $greeting."\r\n\r\n";	// приветствие gpsd
@@ -276,7 +280,10 @@ do {
 					//else continue;	// продолжаем собирать заголовок
 					continue;
 				}
-				//else 	// это команда протокола gpsd. Она всегда одна строка, поэтому её не надо собирать, и неважно, на что она оканчивается.
+				else{ 	// это команда протокола gpsd. Она всегда одна строка, поэтому её не надо собирать, и неважно, на что она оканчивается.
+					$messages[$sockKey]['output'][] = $greeting."\n\n";	// приветствие gpsd
+					$messages[$sockKey]['greeting']=TRUE;
+				}
 			}
 
 			// выделим команду и параметры
@@ -297,7 +304,7 @@ do {
 				switch($command){
 				case 'WATCH': 	// default: ?WATCH={"enable":true};
 					if($params['enable'] == TRUE){
-						if(!$params or count($params)>2){ 	// 
+						if(!$params or count($params)>1){ 	// 
 							$messages[$sockKey]['POLL'] = 'WATCH'; 	// отметим, что WATCH получили в виде, означающем, что это не POLL, надо слать данные непрерывно
 						}
 						else {
@@ -310,8 +317,6 @@ do {
 						// вернуть статус WATCH
 						$msg = '{"class":"WATCH","enable":"true","json":"true"}'."\r\n\r\n";
 						$messages[$sockKey]['output'][] = $msg;
-						if(count($params)==2){
-						}
 					}
 					elseif($params['enable'] == FALSE){ 	// клиент сказал: всё
 						if($messages[$n]['protocol'] == 'WS'){
@@ -321,14 +326,14 @@ do {
 					}
 					break;
 				case 'POLL':
-					if($messages[$sockKey]['POLL'] !== TRUE) continue 2; 	// на POLL будем отзываться только после ?WATCH={"enable":true}
+					if(!$messages[$sockKey]['POLL']) continue 2; 	// на POLL будем отзываться только после ?WATCH={"enable":true}
 					// $POLL заполняется при каждом поступлении от gpsd новых данных
 					$messages[$sockKey]['output'][] = json_encode($POLL)."\r\n\r\n"; 	// будем копить сообщения, вдруг клиент не готов их принять
 					break;
-				case 'CONNECT':
+				case 'CONNECT':	// подключение к другому gpsd. Используется, например, в netAISclient
 					//echo "\nrecieved CONNECT !\n";
-					if($params['host'] and $params['port']) { 	// указано подключиться туда
-						// ЧТо-то здесь надо написать...
+					if(@$params['host'] and @$params['port']) { 	// указано подключиться туда
+						// Видимо, разрешать переподключаться за пределы локальной сети как-то неправильно...
 					}
 					else { 	// данные будут из этого сокета
 						//echo "\nby CONNECT, begin handshaking\n";
@@ -349,12 +354,18 @@ do {
 	// в ['output'] всегда текст или массив из текста [0] и параметров передачи (для websocket)
 	foreach($socksWrite as $socket){
 		$n = array_search($socket,$sockets);	// 
-		foreach($messages[$n]['output'] as $msg) { 	// все накопленные сообщения
-			//echo "to $n:\n$msg;\n";
-			if($messages[$n]['protocol'] == 'WS'){
-				if(is_array($msg)) $msg = wsEncode($msg[0],$msg[1]);	// второй элемент -- тип фрейма
-				else $msg = wsEncode($msg);
+		foreach($messages[$n]['output'] as &$msg) { 	// все накопленные сообщения. & для экономии памяти, но что-то не экономится...
+			//echo "to $n:\n|$msg|\n";
+			$msgParams = null;
+			if(is_array($msg)) list($msg,$msgParams) = $msg;	// второй элемент -- тип фрейма
+			switch($messages[$n]['protocol']){
+			case 'WS':
+				$msg = wsEncode($msg,$msgParams);	
+				break;
+			case 'WS handshake':
+				$messages[$n]['protocol'] = 'WS';
 			}
+			
 			$msgLen = strlen($msg);
 			$res = socket_write($socket, $msg, $msgLen);
 			if($res === FALSE) { 	// клиент умер
@@ -369,10 +380,10 @@ do {
 			}
 		}
 		$messages[$n]['output'] = array();
+		unset($msg);
 	}
 	
 	echo "Has ".(count($sockets))." client socks, and master and gpsd cocks. Ready ".count($socksRead)." read and ".count($socksWrite)." write socks\r";
-	//echo "Connected ".(count($sockets))." clients. Ready ".count($socksRead)." read sockets          \r";
 } while (true);
 
 foreach($sockets as $socket) {
