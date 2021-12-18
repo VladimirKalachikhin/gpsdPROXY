@@ -1,26 +1,5 @@
 <?php
 
-function IRun() {
-/**/
-global $phpCLIexec;
-$pid = getmypid();
-//echo "pid=$pid\n";
-//echo "ps -A w | grep '".pathinfo(__FILE__,PATHINFO_BASENAME)." -s$netAISserverURI'\n";
-$toFind = pathinfo(__FILE__,PATHINFO_BASENAME);
-exec("ps -A w | grep '$toFind'",$psList);
-if(!$psList) exec("ps w | grep '".pathinfo(__FILE__,PATHINFO_BASENAME)."'",$psList); 	// for OpenWRT. For others -- let's hope so all run from one user
-//print_r($psList); //
-$run = FALSE;
-foreach($psList as $str) {
-	if(strpos($str,(string)$pid)!==FALSE) continue;
-	if((strpos($str,"$phpCLIexec ")!==FALSE) and (strpos($str,$toFind)!==FALSE)){
-		$run=TRUE;
-		break;
-	}
-}
-return $run;
-}
-
 function createSocketServer($host,$port,$connections=2){
 /* создаёт сокет, соединенный с $host,$port на своей машине, для приёма входящих соединений 
 в Ubuntu $connections = 0 означает максимально возможное количество соединений, а в Raspbian (Debian?) действительно 0
