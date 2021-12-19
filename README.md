@@ -37,9 +37,11 @@ See _params.php_
 ## Output
 The output same as described for **gpsd**, exept:  
 
-* _sky_ array missing
-* time are UNIX timestamp
-* added _ais_ array with key = mmsi and value as described [AIS DUMP FORMATS](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_ais_dump_formats) section, except:  
+* The DEVICES response of the WATCH command include one device only: the daemon self. So no need to merge data from similar devices -- the daemon do it.
+* _sky_ array missing in POLL object.
+* Time are UNIX timestamp.
+* AIS object missing in WATCH response
+* Added _ais_ array to POLL object and WATCH response with key = mmsi and value as described [AIS DUMP FORMATS](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_ais_dump_formats) section, except:  
 
 >* Speed in m/sec
 >* Location in degrees
