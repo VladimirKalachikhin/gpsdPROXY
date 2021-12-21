@@ -186,51 +186,34 @@ do {
 			//	echo "\n Другой источник данных:	\n"; print_r($inGpsdData);
 			//}
 			$updated = updGPSDdata($inGpsdData);
-			$POLL = array(	// данные для передачи клиенту, в формате gpsd
-				"class" => "POLL",
-				"time" => time(),
-				"active" => 0,
-				"tpv" => array(),
-				"ais" => array()
-			);
-			//echo "\n gpsdData\n"; print_r($gpsdData['TPV']);
-			if($gpsdData['TPV']){
-				foreach($gpsdData['TPV'] as $device => $data){
-					$POLL["active"] ++;
-					$POLL["tpv"][] = $data['data'];
-				}
-			}
-			if($gpsdData['AIS']) {
-				foreach($gpsdData['AIS'] as $vehicle => $data){
-					$data['data']["class"] = "AIS";
-					$POLL["ais"][$data['data']['mmsi']] = $data['data'];
-				}
-			}
-			// Не надо ли что-нибудь сразу отправить?
 			if($updated){	// от gpsd (или что там вместо) может прийти пустое или непонятное
+				// Не надо ли что-нибудь сразу отправить?
+				$WATCH = null; $ais = null;
 				$now = microtime(true);
 				foreach($messages as $n => $sockData){
 					if($sockData['POLL'] === 'WATCH'){	// для соответствующего сокета указано посылать непрерывно. === потому что $data['POLL'] на момент сравнения может иметь тип boolean, и при == произойдёт приведение 'WATCH' к boolean;
-						if((@$sockData['lastSend']+floatval(@$sockData['minPeriod']))>$now) continue;	// частота отсылки данных
+						if(($now - @$sockData['lastSend'])<floatval(@$sockData['minPeriod'])) continue;	// частота отсылки данных
 						$messages[$n]['lastSend'] = $now;
 						//echo "n=$n; sockData:"; print_r($sockData); print_r($updated);
 						if((@$sockData['subscribe']=="TPV") and in_array("TPV",$updated)){
-							foreach($POLL["tpv"] as $data){
-								$messages[$n]['output'][] = json_encode($data)."\r\n\r\n";
-							}
+							if(!$WATCH) $WATCH = makeWATCH();
+							$messages[$n]['output'][] = json_encode($WATCH)."\r\n\r\n";
 						}
 						elseif((@$sockData['subscribe']=="AIS") and in_array("AIS",$updated)){
-							foreach($POLL["ais"] as $data){
-								$messages[$n]['output'][] = json_encode($data)."\r\n\r\n";
-							}
+							if(!$ais) $ais = makeAIS();
+							$out = array('class' => 'AIS');	// это не вполне правильный класс, но ничему не противоречит
+							$out['ais'] = $ais;
+							$messages[$n]['output'][] = json_encode($out)."\r\n\r\n";
+							unset($out);
 						}
 						elseif(!@$sockData['subscribe']){	// 
-							foreach($POLL["tpv"] as $data){
-								$messages[$n]['output'][] = json_encode($data)."\r\n\r\n";
-							}
-							foreach($POLL["ais"] as $data){
-								$messages[$n]['output'][] = json_encode($data)."\r\n\r\n";
-							}
+							if(!$WATCH) $WATCH = makeWATCH();
+							$messages[$n]['output'][] = json_encode($WATCH)."\r\n\r\n";
+							if(!$ais) $ais = makeAIS();
+							$out = array('class' => 'AIS');
+							$out['ais'] = $ais;
+							$messages[$n]['output'][] = json_encode($out)."\r\n\r\n";
+							unset($out);
 						}
 					}
 				}
@@ -378,22 +361,17 @@ do {
 				case 'POLL':
 					if(!$messages[$sockKey]['POLL']) continue 2; 	// на POLL будем отзываться только после ?WATCH={"enable":true}
 					// $POLL заполняется при каждом поступлении от gpsd новых данных					
+					$POLL = makePOLL();
 					switch(@$params['subscribe']){
 					case "TPV":
-						$tmp = $POLL;
-						unset($tmp["ais"]);
-						$messages[$sockKey]['output'][] = json_encode($tmp)."\r\n\r\n"; 	// будем копить сообщения, вдруг клиент не готов их принять
-						unset($tmp);
+						unset($POLL["ais"]);
 						break;
 					case "AIS":
-						$tmp = $POLL;
-						unset($tmp["tpv"]);
-						$messages[$sockKey]['output'][] = json_encode($tmp)."\r\n\r\n"; 	// будем копить сообщения, вдруг клиент не готов их принять
-						unset($tmp);
+						$POLL["tpv"]=array();	// tpv -- обязательно
 						break;
-					default:
-						$messages[$sockKey]['output'][] = json_encode($POLL)."\r\n\r\n"; 	// будем копить сообщения, вдруг клиент не готов их принять
 					}
+					$messages[$sockKey]['output'][] = json_encode($POLL)."\r\n\r\n"; 	// будем копить сообщения, вдруг клиент не готов их принять
+					unset($POLL);
 					break;
 				case 'CONNECT':	// подключение к другому gpsd. Используется, например, в netAISclient
 					//echo "\nrecieved CONNECT !\n";
@@ -429,7 +407,7 @@ function IRun() {
 global $phpCLIexec;
 $pid = getmypid();
 //echo "pid=$pid\n";
-echo "ps -A w | grep '".pathinfo(__FILE__,PATHINFO_BASENAME),"'\n";
+//echo "ps -A w | grep '".pathinfo(__FILE__,PATHINFO_BASENAME),"'\n";
 $toFind = pathinfo(__FILE__,PATHINFO_BASENAME);
 exec("ps -A w | grep '$toFind'",$psList);
 if(!$psList) exec("ps w | grep '".pathinfo(__FILE__,PATHINFO_BASENAME)."'",$psList); 	// for OpenWRT. For others -- let's hope so all run from one user

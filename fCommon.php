@@ -1,4 +1,15 @@
 <?php
+// createSocketServer
+// createSocketClient
+// connectToGPSD
+// updGPSDdata
+// makePOLL
+// makeWATCH
+
+// chkSocks
+
+// wsDecode
+// wsEncode
 
 function createSocketServer($host,$port,$connections=2){
 /* создаёт сокет, соединенный с $host,$port на своей машине, для приёма входящих соединений 
@@ -125,7 +136,9 @@ return $devicePresent;
 
 
 function updGPSDdata($inGpsdData) {
-/**/
+/* Обновляет глобальный кеш $gpsdData отдельными сообщениями $inGpsdData
+$inGpsdData -- один ответ gpsd в режиме ?WATCH={"enable":true,"json":true};, когда оно передаёт поток отдельных сообщений
+*/
 global $gpsdData,$gpsdProxyTimeouts,$noVehicleTimeout;
 $now = time();
 $updated = array();
@@ -133,9 +146,15 @@ switch($inGpsdData['class']) {	// Notice if $inGpsdData empty
 case 'SKY':
 	break;
 case 'TPV':
+	// собирает данные по устройствам, в том числе и однородные
 	foreach($inGpsdData as $type => $value){ 	// обновим данные
 		$gpsdData['TPV'][$inGpsdData['device']]['data'][$type] = $value; 	// php создаёт вложенную структуру, это не python
-		$gpsdData['TPV'][$inGpsdData['device']]['cachedTime'][$type] = $now;
+		if($type == 'time') { // надеемся, что время прислали до содержательных данных
+			$dataTime = strtotime($value);
+			if(!$dataTime) $dataTime = $now;
+		}
+		else $dataTime = $now;
+		$gpsdData['TPV'][$inGpsdData['device']]['cachedTime'][$type] = $dataTime;
 		$updated[] = 'TPV';
 	}
 	// Проверим актуальность всех данных
@@ -352,6 +371,64 @@ $updated = array_unique($updated);
 return $updated;
 } // end function updGPSDdata
 
+function makeAIS(){
+/* делает массив ais */
+global $gpsdData;
+
+$ais = array();
+if($gpsdData['AIS']) {
+	foreach($gpsdData['AIS'] as $vehicle => $data){
+		//$data['data']["class"] = "AIS"; 	// вроде бы, тут не надо?...
+		$data['data']["timestamp"] = $data["timestamp"];		
+		$ais[$data['data']['mmsi']] = $data['data'];
+	}
+}
+return $ais;
+} // end function makeAIS
+
+function makePOLL(){
+/* Из глобального $gpsdData формирует массив ответа на ?POLL протокола gpsd
+*/
+global $gpsdData;
+
+$POLL = array(	// данные для передачи клиенту как POLL, в формате gpsd
+	"class" => "POLL",
+	"time" => time(),
+	"active" => 0,
+	"tpv" => array(),
+	"sky" => array(),	// обязательно по спецификации, пусто
+);
+//echo "\n gpsdData\n"; print_r($gpsdData['TPV']);
+if($gpsdData['TPV']){
+	foreach($gpsdData['TPV'] as $device => $data){
+		$POLL["active"] ++;
+		$POLL["tpv"][] = $data['data'];
+	}
+}
+$POLL["ais"] = makeAIS();
+return $POLL;
+} // end function makePOLL
+
+function makeWATCH(){
+/* Из глобального $gpsdData формирует массив ответа потока ?WATCH протокола gpsd
+*/
+global $gpsdData;
+
+// нужно собрать свежие данные от всех устройств в одно "устройство". 
+// При этом окажется, что координаты от одного приёмника ГПС, а ошибка этих координат -- от другого, если первый не прислал ошибку
+$WATCH = array();
+$lasts = array();
+foreach($gpsdData['TPV'] as $device => $data){
+	foreach($data['data'] as $type => $value){
+		if($type=='device') continue;	// необязательный параметр. Указать своё устройство?
+		if($data['cachedTime'][$type]<=@$lasts[$type]) continue;	// что лучше -- старый 3D fix, или свежий 2d fix?
+		// присвоим только свежие значения
+		$WATCH[$type] = $value;
+		$lasts[$type] = $data['cachedTime'][$type];
+	}
+}
+return $WATCH;
+} // end function makeWATCH
 
 function chkSocks($socket) {
 /**/
