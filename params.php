@@ -1,7 +1,10 @@
 <?php
+// Подключение к gpsdPROXY
+// по возможности не указывайте $gpsdProxyHost='0.0.0.0' -- это не очень безопасно.
+// The gpsdPROXY connection info.
 //$gpsdProxyHost='localhost'; 	//  gpsdPROXY host
 //$gpsdProxyHost='192.168.10.10'; 	// 
-$gpsdProxyHost='0.0.0.0'; 	// 
+$gpsdProxyHost='0.0.0.0'; 	// bad practice! For security reasons, set a real address from your LOCAL network or localhost.
 $gpsdProxyPort=3838; 	// gpsdPROXY port
 
 // перечень типов данных каждого источника в gpsd, для которых требуется контролтровать время жизни
@@ -41,10 +44,18 @@ $gpsdProxyTimeouts = array(  	// время в секундах после по�
 // время в секундах, в течении которого цель AIS сохраняется в кеше после получения от неё последней информации
 $noVehicleTimeout = 600; 	// seconds, time of continuous absence of the vessel in AIS, when reached - is deleted from the data. "when a ship is moored or at anchor, the position message is only broadcast every 180 seconds;"
 
+// Подключение к gpsd
 // gpsd host and port
 $gpsdProxyGPSDhost = 'localhost';
 $gpsdProxyGPSDport = 2947;
 //$gpsdProxyGPSDport = 2222;
+
+// Параметры сохранения кеша
+// Cache backup parms
+// Кеш сохраняется каждые сек.
+$backupTimeout = 10;	// backup period, sec.
+// имя файла, куда сохраняется кеш
+$backupFileName = 'backup/gpsdPROXYbackup.json';	// backup filename
 
 // system
 $phpCLIexec = 'php'; 	// php-cli executed name on your OS

@@ -2,11 +2,13 @@
 // createSocketServer
 // createSocketClient
 // connectToGPSD
+// chkSocks
+
+// updAndPrepare
 // updGPSDdata
+// savepsdData()
 // makePOLL
 // makeWATCH
-
-// chkSocks
 
 // wsDecode
 // wsEncode
@@ -47,13 +49,13 @@ return $sock;
 
 function createSocketClient($host,$port){
 /* создаёт сокет, соединенный с $host,$port на другом компьютере */
-$sock = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
+$sock = @socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
 if(!$sock) {
 	echo "Failed to create client socket by reason: " . socket_strerror(socket_last_error()) . "\n";
 	//return FALSE;
 	exit('1');
 }
-if(! socket_connect($sock,$host,$port)){ 	// подключаемся к серверу
+if(! @socket_connect($sock,$host,$port)){ 	// подключаемся к серверу
 	echo "Failed to connect to remote server $host:$port by reason: " . socket_strerror(socket_last_error()) . "\n";
 	//return FALSE;
 	exit('1');
@@ -134,15 +136,106 @@ $devicePresent = array_unique($devicePresent);
 return $devicePresent;
 } // end function connectToGPSD
 
+function chkSocks($socket) {
+/**/
+global $gpsdSock, $masterSock, $sockets, $socksRead, $socksWrite, $socksError, $messages, $devicePresent,$gpsdProxyGPSDhost,$gpsdProxyGPSDport;
+if($socket == $gpsdSock){ 	// умерло соединение с gpsd
+	echo "\nGPSD socket die. Try to reconnect.\n";
+	socket_close($gpsdSock);
+	$gpsdSock = createSocketClient($gpsdProxyGPSDhost,$gpsdProxyGPSDport); 	// Соединение с gpsd
+	echo "Socket to gpsd reopen, do handshaking\n";
+	$newDevices = connectToGPSD($gpsdSock);
+	if(!$newDevices) exit("gpsd not run or no required devices present, bye       \n");
+	$devicePresent = array_unique(array_merge($devicePresent,$newDevices));
+	echo "New handshaking, will recieve data from gpsd\n";
+}
+elseif($socket == $masterSock){ 	// умерло входящее подключение
+	echo "\nIncoming socket die. Try to recreate.\n";
+	socket_close($masterSock);
+	$masterSock = createSocketServer($gpsdProxyHost,$gpsdProxyPort,20); 	// Входное соединение
+}
+else {
+	$n = array_search($socket,$sockets);	// 
+	//echo "Close client socket $n type ".gettype($socket)." by error or by life\n";
+	unset($sockets[$n]);
+	unset($messages[$n]);
+	$n = array_search($socket,$socksRead);	// 
+	unset($socksRead[$n]);
+	$n = array_search($socket,$socksWrite);	// 
+	unset($socksWrite[$n]);
+	$n = array_search($socket,$socksError);	// 
+	unset($socksError[$n]);
+	socket_close($socket);
+}
+//echo "\nchkSocks sockets: "; print_r($sockets);
+} // end function chkSocks
 
-function updGPSDdata($inGpsdData) {
+function updAndPrepare($inGpsdData=array(),$sockKey=null){
+/* Обновляет кеш данных и готовит к отправке, если надо, данные для режима WATCH, 
+так, что на следующем обороте они будут отправлены */
+global $messages, $pollWatchExist, $gpsdData;
+
+//echo "sockKey=$sockKey;                   \n";
+$gpsdDataUpdated = updGPSDdata($inGpsdData,$sockKey);
+savegpsdData(); 	// сохраним в файл, если пора
+//echo "\npollWatchExist=$pollWatchExist;"; print_r($inGpsdData);
+if($pollWatchExist){	// есть режим WATCH, надо подготовить данные. От gpsd (или что там вместо) может прийти пустое или непонятное
+	// Не надо ли что-нибудь сразу отправить?
+	$WATCH = null; $ais = null; $MOB = null;
+	$pollWatchExist = FALSE;	// 
+	$now = microtime(true);
+	foreach($messages as $n => $sockData){
+		if($sockData['POLL'] === 'WATCH'){	// для соответствующего сокета указано посылать непрерывно. === потому что $data['POLL'] на момент сравнения может иметь тип boolean, и при == произойдёт приведение 'WATCH' к boolean;
+			$pollWatchExist = TRUE;	// отметим, что есть сокет с режимом WATCH
+			if(($now - @$sockData['lastSend'])<floatval(@$sockData['minPeriod'])) continue;	// частота отсылки данных
+			$messages[$n]['lastSend'] = $now;
+
+			//echo "n=$n; sockData:"; print_r($sockData);
+			if((@$sockData['subscribe']=="TPV") and $gpsdDataUpdated["TPV"]){
+				if(!$WATCH) $WATCH = makeWATCH();
+				$messages[$n]['output'][] = json_encode($WATCH)."\r\n\r\n";
+			}
+			elseif((@$sockData['subscribe']=="AIS") and $gpsdDataUpdated["AIS"]){
+				if(!$ais) $ais = makeAIS();
+				$out = array('class' => 'AIS');	// это не вполне правильный класс, но ничему не противоречит
+				$out['ais'] = $ais;
+				$messages[$n]['output'][] = json_encode($out)."\r\n\r\n";
+				unset($out);
+			}
+			elseif(!@$sockData['subscribe']){	// не указали подписку, шлём всё
+				if($gpsdDataUpdated["TPV"]){
+					if(!$WATCH) $WATCH = makeWATCH();
+					$messages[$n]['output'][] = json_encode($WATCH)."\r\n\r\n";
+				}
+				if($gpsdDataUpdated["AIS"]){	// 
+					if(!$ais) $ais = makeAIS();
+					$out = array('class' => 'AIS');
+					$out['ais'] = $ais;
+					$messages[$n]['output'][] = json_encode($out)."\r\n\r\n";
+					unset($out);
+				}
+			}
+			//echo "gpsdDataUpdated[MOB]={$gpsdDataUpdated["MOB"]};        \n";			
+			if(isset($gpsdDataUpdated["MOB"]) and $gpsdDataUpdated["MOB"]!==$n){	// не тот сокет, который прислал данные. Если вернуть данные тому же, то он может их снова прислать из каких-то своих соображений, и так бесконечно.
+			//if(isset($gpsdDataUpdated["MOB"]) and $gpsdDataUpdated["MOB"]===$n){	// тот сокет, который прислал данные, для тестовых целей
+				//echo "Prepare to send MOB data to WACH'ed socket #$n;                      \n";
+				//print_r($gpsdData["MOB"]);
+				$messages[$n]['output'][] = json_encode($gpsdData["MOB"])."\r\n\r\n";
+			}
+			
+		}
+	}
+}
+} // end function updAndPrepare
+
+function updGPSDdata($inGpsdData=array(),$sockKey=null) {
 /* Обновляет глобальный кеш $gpsdData отдельными сообщениями $inGpsdData
 $inGpsdData -- один ответ gpsd в режиме ?WATCH={"enable":true,"json":true};, когда оно передаёт поток отдельных сообщений
 */
 global $gpsdData,$gpsdProxyTimeouts,$noVehicleTimeout;
+$gpsdDataUpdated = array(); // массив, где указано, какие классы изменениы и кем.
 $now = time();
-$updated = array();
-switch($inGpsdData['class']) {	// Notice if $inGpsdData empty
+switch(@$inGpsdData['class']) {	// Notice if $inGpsdData empty
 case 'SKY':
 	break;
 case 'TPV':
@@ -155,17 +248,7 @@ case 'TPV':
 		}
 		else $dataTime = $now;
 		$gpsdData['TPV'][$inGpsdData['device']]['cachedTime'][$type] = $dataTime;
-		$updated[] = 'TPV';
-	}
-	// Проверим актуальность всех данных
-	foreach($gpsdData['TPV'][$inGpsdData['device']]['cachedTime'] as $type => $cachedTime){ 	// поищем, не протухло ли чего
-		if(($gpsdData['TPV'][$inGpsdData['device']]['data'][$type] !== NULL) and $gpsdProxyTimeouts['TPV'][$type] and (($now - $cachedTime) > $gpsdProxyTimeouts['TPV'][$type])) {	// Notice if on $gpsdProxyTimeouts not have this $type
-			//echo "\n gpsdData\n"; print_r($gpsdData['TPV'][$inGpsdData['device']]['data']);
-			//$gpsdData['TPV'][$inGpsdData['device']]['data'][$type] = NULL;
-			unset($gpsdData['TPV'][$inGpsdData['device']]['data'][$type]);
-			$updated[] = 'TPV';
-			//echo "Данные ".$type." от устройства ".$inGpsdData['device']." протухли.                     \n";
-		}
+		$gpsdDataUpdated['TPV'] = TRUE;
 	}
 	break;
 case 'netAIS':
@@ -176,23 +259,13 @@ case 'netAIS':
 		foreach($data as $type => $value){
 			$gpsdData['AIS'][$vehicle]['data'][$type] = $value; 	// 
 			$gpsdData['AIS'][$vehicle]['cachedTime'][$type] = $timestamp;
-			$updated[] = 'AIS';
-		}
-		foreach($gpsdData['AIS'][$vehicle]['cachedTime'] as $type => $cachedTime){ 	// поищем, не протухло ли чего
-			if(($gpsdData['AIS'][$vehicle]['data'][$type] !== NULL) and $gpsdProxyTimeouts['AIS'][$type] and (($now - $cachedTime) > $gpsdProxyTimeouts['AIS'][$type])) {
-				//echo "\n gpsdData\n"; print_r($gpsdData$gpsdData['AIS'][$vehicle]['data']);
-				//$gpsdData['AIS'][$vehicle]['data'][$type] = NULL;
-				unset($gpsdData['AIS'][$vehicle]['data'][$type]);
-				$updated[] = 'AIS';
-				//echo "Данные AIS".$type." для судна ".$vehicle." протухли.                                       \n";
-			}
+			$gpsdDataUpdated['AIS'] = true;
 		}
 	}
 	break;
 case 'AIS':
 	//echo "JSON AIS Data:\n"; print_r($inGpsdData); echo "\n";
 	$vehicle = trim((string)$inGpsdData['mmsi']);
-	$aisVehicles[] = $vehicle;
 	$gpsdData['AIS'][$vehicle]['data']['mmsi'] = $vehicle;
 	if($inGpsdData['netAIS']) $gpsdData['AIS'][$vehicle]['netAIS'] = 1; 	// 
 	//echo "\n AIS sentence type ".$inGpsdData['type']."\n";
@@ -277,7 +350,7 @@ case 'AIS':
 		$gpsdData['AIS'][$vehicle]['cachedTime']['maneuver'] = $now;
 		$gpsdData['AIS'][$vehicle]['data']['raim'] = (int)filter_var($inGpsdData['raim'],FILTER_SANITIZE_NUMBER_INT); 	// RAIM-flag Receiver autonomous integrity monitoring (RAIM) flag of electronic position fixing device; 0 = RAIM not in use = default; 1 = RAIM in use. See Table 50
 		$gpsdData['AIS'][$vehicle]['data']['radio'] = (string)$inGpsdData['radio']; 	// Communication state
-		$updated[] = 'AIS';
+		$gpsdDataUpdated['AIS'] = TRUE;
 		//break; 	//comment break чтобы netAIS мог посылать информацию типа 5,24 и 6,8 в сообщени типа 1. Но gpsdAISd не имеет дела с netAIS?
 	case 5: 	// http://www.e-navigation.nl/content/ship-static-and-voyage-related-data
 	case 24: 	// Vendor ID не поддерживается http://www.e-navigation.nl/content/static-data-report
@@ -305,7 +378,7 @@ case 'AIS':
 		}
 		$gpsdData['AIS'][$vehicle]['data']['destination'] = filter_var($inGpsdData['destination'],FILTER_SANITIZE_STRING); 	// Destination Maximum 20 characters using 6-bit ASCII; @@@@@@@@@@@@@@@@@@@@ = not available For SAR aircraft, the use of this field may be decided by the responsible administration
 		$gpsdData['AIS'][$vehicle]['data']['dte'] = (int)filter_var($inGpsdData['dte'],FILTER_SANITIZE_NUMBER_INT); 	// DTE Data terminal equipment (DTE) ready (0 = available, 1 = not available = default) (see § 3.3.1)
-		$updated[] = 'AIS';
+		$gpsdDataUpdated['AIS'] = TRUE;
 		//break; 	// comment break чтобы netAIS мог посылать информацию типа 5,24 и 6,8 в сообщени типа 1
 	case 6: 	// http://www.e-navigation.nl/asm  http://192.168.10.10/gpsd/AIVDM.adoc
 	case 8: 	// 
@@ -325,51 +398,64 @@ case 'AIS':
 		$gpsdData['AIS'][$vehicle]['data']['speed_q'] = (int)filter_var($inGpsdData['speed_q'],FILTER_SANITIZE_NUMBER_INT); 	// Speed inf. quality 0 = low/GNSS (default) 1 = high
 		$gpsdData['AIS'][$vehicle]['data']['course_q'] = (int)filter_var($inGpsdData['course_q'],FILTER_SANITIZE_NUMBER_INT); 	// Course inf. quality 0 = low/GNSS (default) 1 = high
 		$gpsdData['AIS'][$vehicle]['data']['heading_q'] = (int)filter_var($inGpsdData['heading_q'],FILTER_SANITIZE_NUMBER_INT); 	// Heading inf. quality 0 = low/GNSS (default) 1 = high
-		$updated[] = 'AIS';
+		$gpsdDataUpdated['AIS'] = TRUE;
 		break;
 	}
+case 'MOB':
+	$gpsdData['MOB']['class'] = 'MOB';
+	$gpsdData['MOB']['status'] = $inGpsdData['status'];
+	$gpsdData['MOB']['points'] = $inGpsdData['points'];
+	$gpsdDataUpdated['MOB'] = $sockKey;
+	//print_r($gpsdData['MOB']);
+	break;
+}
 
-	if($gpsdData['AIS'][$vehicle]['cachedTime']){
-		foreach($gpsdData['AIS'][$vehicle]['cachedTime'] as $type => $cachedTime){ 	// поищем, не протухло ли чего
-			if(($gpsdData['AIS'][$vehicle]['data'][$type] !== NULL) and $gpsdProxyTimeouts['AIS'][$type] and (($now - $cachedTime) > $gpsdProxyTimeouts['AIS'][$type])) {
-				//echo "\n gpsdData\n"; print_r($gpsdData$gpsdData['AIS'][$vehicle]['data']);
-				//$gpsdData['AIS'][$vehicle]['data'][$type] = NULL;
-				unset($gpsdData['AIS'][$vehicle]['data'][$type]);
-				$updated[] = 'AIS';
-				//echo "Данные AIS".$type." для судна ".$vehicle." протухли.                                       \n";
+// Проверим актуальность всех данных
+// TPV
+if($gpsdData['TPV']){
+	foreach($gpsdData['TPV'] as $device => $data){
+		foreach($gpsdData['TPV'][$device]['cachedTime'] as $type => $cachedTime){ 	// поищем, не протухло ли чего
+			//echo "type=$type; data['data'][type]={$data['data'][$type]}; gpsdProxyTimeouts['TPV'][type]={$gpsdProxyTimeouts['TPV'][$type]}; now=$now; cachedTime=$cachedTime;\n";
+			if(is_numeric($data['data'][$type]) and $gpsdProxyTimeouts['TPV'][$type] and (($now - $cachedTime) > $gpsdProxyTimeouts['TPV'][$type])) {	// Notice if on $gpsdProxyTimeouts not have this $type
+				unset($gpsdData['TPV'][$device]['data'][$type]);
+				$gpsdDataUpdated['TPV'] = TRUE;
+				//echo "Данные ".$type." от устройства ".$device." протухли.                     \n";
 			}
 		}
 	}
 }
-// if AIS target present?
-if($gpsdData['AIS']) { 	// может не быть
+// AIS
+if($gpsdData['AIS']) {	// IF быстрей, чем обработка Warning?
 	foreach($gpsdData['AIS'] as $id => $vehicle){
 		if(($now - $vehicle['timestamp'])>$noVehicleTimeout) {
 			unset($gpsdData['AIS'][$id]); 	// удалим цель, последний раз обновлявшуюся давно
-			$updated[] = 'AIS';
+			$gpsdDataUpdated['AIS'] = TRUE;
+			continue;	// к следующей цели AIS
 		}
-		/*
-		// удалим цель AIS, все контролируемые параметры которой протухли.
-		// но юзер может добавить вечный параметр?
-		$noInfo = TRUE;
-		foreach($gpsdProxyTimeouts['AIS'] as $type){
-			if($vehicle['data'][$type]){
-				$noInfo = FALSE;
-				break;
+		foreach($gpsdData['AIS'][$id]['cachedTime'] as $type => $cachedTime){ 	// поищем, не протухло ли чего
+			if(is_numeric($vehicle['data'][$type]) and $gpsdProxyTimeouts['AIS'][$type] and (($now - $cachedTime) > $gpsdProxyTimeouts['AIS'][$type])) {
+				unset($gpsdData['AIS'][$id]['data'][$type]);
+				$gpsdDataUpdated['AIS'] = TRUE;
+				//echo "Данные AIS ".$type." для судна ".$id." протухли.                                       \n";
 			}
 		}
-		if($noInfo) {
-			unset($gpsdData['AIS'][$vehicle]); 	
-			$updated[] = 'AIS';
-		}
-		*/
 	}
 }
-$updated = array_unique($updated);
+
+//echo "\n gpsdDataUpdated\n"; print_r($gpsdDataUpdated);
 //echo "\n gpsdData\n"; print_r($gpsdData);
 //echo "\n gpsdData AIS\n"; print_r($gpsdData['AIS']);
-return $updated;
+return $gpsdDataUpdated;
 } // end function updGPSDdata
+
+function savegpsdData(){
+/**/
+global $gpsdData,$backupFileName,$backupTimeout,$lastBackupSaved;
+
+if((time()-$lastBackupSaved)>$backupTimeout){
+	file_put_contents($backupFileName,json_encode($gpsdData));
+}
+} // end function savepsdData
 
 function makeAIS(){
 /* делает массив ais */
@@ -406,6 +492,9 @@ if($gpsdData['TPV']){
 	}
 }
 $POLL["ais"] = makeAIS();
+if($gpsdData["MOB"]){
+	$POLL["mob"] = $gpsdData["MOB"];
+}
 return $POLL;
 } // end function makePOLL
 
@@ -429,40 +518,6 @@ foreach($gpsdData['TPV'] as $device => $data){
 }
 return $WATCH;
 } // end function makeWATCH
-
-function chkSocks($socket) {
-/**/
-global $gpsdSock, $masterSock, $sockets, $socksRead, $socksWrite, $socksError, $messages, $devicePresent,$gpsdProxyGPSDhost,$gpsdProxyGPSDport;
-if($socket == $gpsdSock){ 	// умерло соединение с gpsd
-	echo "\nGPSD socket die. Try to reconnect.\n";
-	socket_close($gpsdSock);
-	$gpsdSock = createSocketClient($gpsdProxyGPSDhost,$gpsdProxyGPSDport); 	// Соединение с gpsd
-	echo "Socket to gpsd reopen, do handshaking\n";
-	$newDevices = connectToGPSD($gpsdSock);
-	if(!$newDevices) exit("gpsd not run or no required devices present, bye       \n");
-	$devicePresent = array_unique(array_merge($devicePresent,$newDevices));
-	echo "New handshaking, will recieve data from gpsd\n";
-}
-elseif($socket == $masterSock){ 	// умерло входящее подключение
-	echo "\nIncoming socket die. Try to recreate.\n";
-	socket_close($masterSock);
-	$masterSock = createSocketServer($gpsdProxyHost,$gpsdProxyPort,20); 	// Входное соединение
-}
-else {
-	$n = array_search($socket,$sockets);	// 
-	//echo "Close client socket $n type ".gettype($socket)." by error or by life\n";
-	unset($sockets[$n]);
-	unset($messages[$n]);
-	$n = array_search($socket,$socksRead);	// 
-	unset($socksRead[$n]);
-	$n = array_search($socket,$socksWrite);	// 
-	unset($socksWrite[$n]);
-	$n = array_search($socket,$socksError);	// 
-	unset($socksError[$n]);
-	socket_close($socket);
-}
-//echo "\nchkSocks sockets: "; print_r($sockets);
-} // end function chkSocks
 
 function wsDecode($data){
 /* Возвращает:

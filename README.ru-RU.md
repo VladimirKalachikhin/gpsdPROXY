@@ -1,5 +1,5 @@
 # gpsdPROXY daemon [![License: CC BY-SA 4.0](https://img.shields.io/badge/License-CC%20BY--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-sa/4.0/)
-**version 0.3**  
+**version 0.4**  
 
 Весьма удобно обращаться к **[gpsd](https://gpsd.io/)** из веб-приложений посредством команды [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) в произвольный момент времени, однако есть проблемы:  
 >**во-первых**, данные AIS недоступны в команде ?POLL;  
