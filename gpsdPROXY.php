@@ -1,7 +1,6 @@
 <?php
 /* Демон.
 Кеширует данные TPV и AIS от gpsd, и отдаёт их по запросу ?POLL; протокола gpsd
-При этом все устройства -- источники данных всё время работы демона остаются активными и потребляющими электричество.
 
 Кроме того, можно обратиться к демону с запросом ?WATCH={“enable”:true,“json”:true} и получить поток.
 
@@ -36,6 +35,7 @@ if(IRun()) { 	// Я ли?
 $gpsdData = @json_decode(@file_get_contents($backupFileName), true);
 if(!$gpsdData) $gpsdData = array(); 	
 $lastBackupSaved = 0;	// время последнего сохранения кеша
+$lastClientExchange = 0;	// время последней коммуникации какого-нибудь клиента
 
 $greeting = '{"class":"VERSION","release":"gpsdPROXY_0","rev":"beta","proto_major":3,"proto_minor":0}';
 $SEEN_GPS = 0x01; $SEEN_AIS = 0x08;
@@ -63,8 +63,8 @@ array_walk_recursive($gpsdProxyTimeouts, function($val){
 
 $sockets = array(); 	// список функционирующих сокетов
 $masterSock = createSocketServer($gpsdProxyHost,$gpsdProxyPort,20); 	// Соединение для приёма клиентов, входное соединение
-
 $gpsdSock = createSocketClient($gpsdProxyGPSDhost,$gpsdProxyGPSDport); 	// Соединение с gpsd
+//echo "masterSock=$masterSock; gpsdSock=$gpsdSock;\n";
 
 // Поехали
 // Подключимся к gpsd
@@ -89,31 +89,45 @@ $socksRead = array(); $socksWrite = array(); $socksError = array(); 	// масс
 echo "Ready to connection from $gpsdProxyHost:$gpsdProxyPort\n";
 do {
 	//$startTime = microtime(TRUE);
-	echo "Has ".(count($sockets))." client socks, and master and gpsd cocks. Ready ".count($socksRead)." read and ".count($socksWrite)." write socks\r";	// в начале, потому что continue
 	$socksRead = $sockets; 	// мы собираемся читать все сокеты
 	$socksRead[] = $masterSock; 	// 
-	$socksRead[] = $gpsdSock; 	// 
+	if($sockets) {
+		//echo "gpsdSock=$gpsdSock; gettype(gpsdSock):".gettype($gpsdSock).";\n";
+		if(gettype($gpsdSock)==='resource (closed)') chkSocks($gpsdSock);	// а как ещё узнать, что сокет закрыт? Массив error socket_select не помогает.
+		$socksRead[] = $gpsdSock; 	// есть клиенты -- нам нужно соединение с gpsd
+		$socksError[] = $gpsdSock; 	// 
+		$info = " and gpsd";
+	}
+	else {	// клиентов нет -- можно закрыть соединеие с gpsd, чтобы он заснул приёмник гпс.
+		if((time()-$lastClientExchange)>$noClientTimeout){
+			$msg = '?WATCH={"enable":false}'."\n";
+			$res = socket_write($gpsdSock, $msg, strlen($msg));
+			socket_close($gpsdSock);
+			echo "\ngpsd socket closed by no clients\n";
+			$info = "";
+		}
+	}
 	// сокет всегда готов для чтения, есть там что-нибудь или нет, поэтому если в socksWrite что-то есть, socket_select никогда не ждёт, возвращая socksWrite неизменённым
 	$socksWrite = array(); 	// очистим массив 
 	foreach($messages as $n => $data){ 	// пишем только в сокеты, полученные от masterSock путём socket_accept
 		if($data['output'])	$socksWrite[] = $sockets[$n]; 	// если есть, что писать -- добавим этот сокет в те, в которые будем писать
 	}
-	//print_r($socksWrite);
+	//print_r($socksRead);
 	$socksError = $sockets; 	// 
 	$socksError[] = $masterSock; 	// 
-	$socksError[] = $gpsdSock; 	// 
 
 	//echo "\n\nНачало. Ждём, пока что-нибудь произойдёт\n";
 	if($pollWatchExist) $SocketTimeout = $minSocketTimeout;	// в принципе, $SocketTimeout можно назначать вместе с $pollWatchExist?
 	else $SocketTimeout = null;
 	//echo "pollWatchExist=$pollWatchExist; minSocketTimeout=$minSocketTimeout; SocketTimeout=$SocketTimeout;        \n";
 	$num_changed_sockets = socket_select($socksRead, $socksWrite, $socksError, $SocketTimeout); 	// должно ждать
+	echo "Has ".(count($sockets))." client socks, and master$info cocks. Ready ".count($socksRead)." read and ".count($socksWrite)." write socks\r";	// в начале, потому что continue
 
 	// теперь в $socksRead только те сокеты, куда пришли данные, в $socksWrite -- те, откуда НЕ считали, т.е., не было, что читать, но они готовы для чтения
-	if ($socksError) { 	// Warning не перехватываются
+	if ($socksError) { 	// Warning не перехватываются, включая supplied resource is not a valid Socket resource И смысл?
 		echo "socket_select: Error on sockets: " . socket_strerror(socket_last_error()) . "\n";
 		foreach($socksError as $socket){
-			chkSocks($socket);
+			chkSocks($socket); 
 		}
 	}
 
@@ -146,6 +160,7 @@ do {
 				chkSocks($socket);
 				continue 3;	// к следующему сокету
 			}
+			$lastClientExchange = time();
 		}
 		$messages[$n]['output'] = array();
 		unset($msg);
@@ -166,6 +181,7 @@ do {
 				chkSocks($socket); 	// recreate masterSock
 				continue;
 			}
+			$lastClientExchange = time();
 			$sockets[] = $sock; 	// добавим новое входное подключение к имеющимся соединениям
 			$sockKey = array_search($sock,$sockets);	// Resource id не может быть ключём массива, поэтому используем порядковый номер. Что стрёмно.
 			$messages[$sockKey]['greeting']=FALSE;	// укажем, что приветствие не посылали. Запрос может быть не только как к gpsd, но и как к серверу websocket
@@ -198,6 +214,7 @@ do {
 			}
 		    continue;	// к следующему сокету
 		}
+		$lastClientExchange = time();
 		
 		// Собственно, содержательная часть
 		//echo "\nПринято:$buf|\n"; 	// здесь что-то прочитали из какого-то сокета

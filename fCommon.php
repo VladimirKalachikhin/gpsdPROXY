@@ -141,7 +141,7 @@ function chkSocks($socket) {
 global $gpsdSock, $masterSock, $sockets, $socksRead, $socksWrite, $socksError, $messages, $devicePresent,$gpsdProxyGPSDhost,$gpsdProxyGPSDport;
 if($socket == $gpsdSock){ 	// умерло соединение с gpsd
 	echo "\nGPSD socket die. Try to reconnect.\n";
-	socket_close($gpsdSock);
+	@socket_close($gpsdSock); 	// он может быть уже закрыт
 	$gpsdSock = createSocketClient($gpsdProxyGPSDhost,$gpsdProxyGPSDport); 	// Соединение с gpsd
 	echo "Socket to gpsd reopen, do handshaking\n";
 	$newDevices = connectToGPSD($gpsdSock);
@@ -151,7 +151,7 @@ if($socket == $gpsdSock){ 	// умерло соединение с gpsd
 }
 elseif($socket == $masterSock){ 	// умерло входящее подключение
 	echo "\nIncoming socket die. Try to recreate.\n";
-	socket_close($masterSock);
+	@socket_close($masterSock); 	// он может быть уже закрыт
 	$masterSock = createSocketServer($gpsdProxyHost,$gpsdProxyPort,20); 	// Входное соединение
 }
 else {
@@ -165,7 +165,7 @@ else {
 	unset($socksWrite[$n]);
 	$n = array_search($socket,$socksError);	// 
 	unset($socksError[$n]);
-	socket_close($socket);
+	@socket_close($socket); 	// он может быть уже закрыт
 }
 //echo "\nchkSocks sockets: "; print_r($sockets);
 } // end function chkSocks
@@ -453,7 +453,7 @@ function savegpsdData(){
 global $gpsdData,$backupFileName,$backupTimeout,$lastBackupSaved;
 
 if((time()-$lastBackupSaved)>$backupTimeout){
-	file_put_contents($backupFileName,json_encode($gpsdData));
+	file_put_contents($backupFileName,json_encode($gpsdData)); 
 }
 } // end function savepsdData
 

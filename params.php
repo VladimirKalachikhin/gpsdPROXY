@@ -50,6 +50,11 @@ $gpsdProxyGPSDhost = 'localhost';
 $gpsdProxyGPSDport = 2947;
 //$gpsdProxyGPSDport = 2222;
 
+// Отключение от gpsd
+// Freeing gpsd
+// Время, сек., через которое происходит отключение от gpsd при отсутствии клиентов. gpsd отключит датчики
+$noClientTimeout = 180;	// sec., disconnect from gpsd on no any client present
+
 // Параметры сохранения кеша
 // Cache backup parms
 // Кеш сохраняется каждые сек.
