@@ -508,6 +508,12 @@ global $gpsdData;
 $WATCH = array();
 $lasts = array();
 foreach($gpsdData['TPV'] as $device => $data){
+	// при отсутствии надёжных координат от этого устройства не будем собирать координаты
+	if($data['data']['mode']<2){	// no fix, mode всегда есть
+		unset($data['data']['lat']);
+		unset($data['data']['lon']);
+		echo "No fix, lat lon removed from WATCH flow                          \n";
+	}
 	foreach($data['data'] as $type => $value){
 		if($type=='device') continue;	// необязательный параметр. Указать своё устройство?
 		if($data['cachedTime'][$type]<=@$lasts[$type]) continue;	// что лучше -- старый 3D fix, или свежий 2d fix?

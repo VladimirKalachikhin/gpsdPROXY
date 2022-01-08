@@ -2,13 +2,15 @@
 /* Демон.
 Кеширует данные TPV и AIS от gpsd, и отдаёт их по запросу ?POLL; протокола gpsd
 
-Кроме того, можно обратиться к демону с запросом ?WATCH={“enable”:true,“json”:true} и получить поток.
+Кроме того, можно обратиться к демону с запросом ?WATCH={“enable”:true,“json”:true} и получить поток. Можно
+обратиться по протоколу websocket -- скорее всего, будет работать.
 
 Daemon
 Caches TPV and AIS data from gpsd, and returns them on request ?POLL; of the gpsd protocol
 As side: daemon keeps instruments alive and power consuming.  
 
-The ?WATCH={“enable”:true,“json”:true} mode also available.
+The ?WATCH={“enable”:true,“json”:true} mode also available: via cocket or websocket. 
+The websocket is partially implemented but mostly work.
 
 Зачем это надо: 
 Details:
@@ -19,6 +21,9 @@ Call:
 $ nc localhost 3838
 $ cgps localhost:3838
 $ telnet localhost 3838
+*/
+/*
+0.4.1	remove lat lon from WATCH flow if mode < 2 (no fix). On POLL stay as received.
 */
 chdir(__DIR__); // задаем директорию выполнение скрипта
 
