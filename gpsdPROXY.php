@@ -75,8 +75,9 @@ $gpsdSock = createSocketClient($gpsdProxyGPSDhost,$gpsdProxyGPSDport); 	// Со�
 // Подключимся к gpsd
 echo "Socket to gpsd opened, do handshaking\n";
 $devicePresent = connectToGPSD($gpsdSock);
-if(!$devicePresent) exit("Handshaking fail: gpsd not run or no required devices present, bye     \n");
+if($devicePresent===FALSE) exit("Handshaking fail: gpsd not run, bye     \n");
 echo "Handshaked, will recieve data from gpsd\n";
+if(!$devicePresent) echo"but no required devices present     \n";
 /*массив "номер сокета в массиве $sockets" => "массив [
 'output'=> array(сообщений), // сообщения для отправки через этот сокет на следующем обороте
 'PUT'=>TRUE/FALSE,	// признак, что данные надо брать из этого сокета, а не от gpsd. А оно надо?
@@ -126,7 +127,7 @@ do {
 	else $SocketTimeout = null;
 	//echo "pollWatchExist=$pollWatchExist; minSocketTimeout=$minSocketTimeout; SocketTimeout=$SocketTimeout;        \n";
 	$num_changed_sockets = socket_select($socksRead, $socksWrite, $socksError, $SocketTimeout); 	// должно ждать
-	echo "Has ".(count($sockets))." client socks, and master$info cocks. Ready ".count($socksRead)." read and ".count($socksWrite)." write socks\r";	// в начале, потому что continue
+	echo "Has ".(count($sockets))." client socks, and master$info socks. Ready ".count($socksRead)." read and ".count($socksWrite)." write socks\r";	// в начале, потому что continue
 
 	// теперь в $socksRead только те сокеты, куда пришли данные, в $socksWrite -- те, откуда НЕ считали, т.е., не было, что читать, но они готовы для чтения
 	if ($socksError) { 	// Warning не перехватываются, включая supplied resource is not a valid Socket resource И смысл?
@@ -456,12 +457,11 @@ function IRun() {
 /**/
 global $phpCLIexec;
 $pid = getmypid();
-//echo "pid=$pid\n";
 //echo "ps -A w | grep '".pathinfo(__FILE__,PATHINFO_BASENAME),"'\n";
 $toFind = pathinfo(__FILE__,PATHINFO_BASENAME);
 exec("ps -A w | grep '$toFind'",$psList);
-if(!$psList) exec("ps w | grep '".pathinfo(__FILE__,PATHINFO_BASENAME)."'",$psList); 	// for OpenWRT. For others -- let's hope so all run from one user
-//print_r($psList); //
+if(!$psList) exec("ps w | grep '$toFind'",$psList); 	// for OpenWRT. For others -- let's hope so all run from one user
+//echo "__FILE__=".__FILE__."; pid=$pid; phpCLIexec=$phpCLIexec; toFind=$toFind;\n"; print_r($psList); //
 $run = FALSE;
 foreach($psList as $str) {
 	if(strpos($str,(string)$pid)!==FALSE) continue;
@@ -470,6 +470,7 @@ foreach($psList as $str) {
 		break;
 	}
 }
+//echo "run=$run;\n";
 return $run;
 }
 

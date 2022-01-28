@@ -42,7 +42,7 @@ $gpsdProxyTimeouts = array(  	// время в секундах после по�
 )
 );
 // время в секундах, в течении которого цель AIS сохраняется в кеше после получения от неё последней информации
-$noVehicleTimeout = 600; 	// seconds, time of continuous absence of the vessel in AIS, when reached - is deleted from the data. "when a ship is moored or at anchor, the position message is only broadcast every 180 seconds;"
+$noVehicleTimeout = 60*60; 	// seconds, time of continuous absence of the vessel in AIS, when reached - is deleted from the data. "when a ship is moored or at anchor, the position message is only broadcast every 180 seconds;"
 
 // Подключение к gpsd
 // gpsd host and port

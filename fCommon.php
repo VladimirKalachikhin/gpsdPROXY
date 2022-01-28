@@ -127,11 +127,6 @@ do { 	// при каскадном соединении нескольких gps
 	
 }while($WATCHsend or in_array($buf['class'],$controlClasses));
 //echo "buf: "; print_r($buf);
-if(!$devicePresent) {
-	echo "\nno required devices present\n";
-	//exit();
-	return FALSE;
-}
 $devicePresent = array_unique($devicePresent);
 return $devicePresent;
 } // end function connectToGPSD
@@ -145,9 +140,10 @@ if($socket == $gpsdSock){ 	// умерло соединение с gpsd
 	$gpsdSock = createSocketClient($gpsdProxyGPSDhost,$gpsdProxyGPSDport); 	// Соединение с gpsd
 	echo "Socket to gpsd reopen, do handshaking\n";
 	$newDevices = connectToGPSD($gpsdSock);
-	if(!$newDevices) exit("gpsd not run or no required devices present, bye       \n");
-	$devicePresent = array_unique(array_merge($devicePresent,$newDevices));
+	if($newDevices===FALSE) exit("Handshaking fail: gpsd not run, bye     \n");
 	echo "New handshaking, will recieve data from gpsd\n";
+	if($newDevices) $devicePresent = array_unique(array_merge($devicePresent,$newDevices));
+	else echo"but no required devices present     \n";
 }
 elseif($socket == $masterSock){ 	// умерло входящее подключение
 	echo "\nIncoming socket die. Try to recreate.\n";
@@ -235,18 +231,20 @@ $inGpsdData -- один ответ gpsd в режиме ?WATCH={"enable":true,"j
 global $gpsdData,$gpsdProxyTimeouts,$noVehicleTimeout;
 $gpsdDataUpdated = array(); // массив, где указано, какие классы изменениы и кем.
 $now = time();
+$vehicle = null;
 switch(@$inGpsdData['class']) {	// Notice if $inGpsdData empty
 case 'SKY':
 	break;
 case 'TPV':
 	// собирает данные по устройствам, в том числе и однородные
-	foreach($inGpsdData as $type => $value){ 	// обновим данные
-		$gpsdData['TPV'][$inGpsdData['device']]['data'][$type] = $value; 	// php создаёт вложенную структуру, это не python
+	if(!isset($inInstrumentsData['time'])) $inInstrumentsData['time'] = date(DATE_ATOM,$now);	// ISO8601 
+	$dataTime = $now;
+	foreach($inInstrumentsData as $type => $value){ 	// обновим данные
+		$instrumentsData['TPV'][$inInstrumentsData['device']]['data'][$type] = $value; 	// php создаёт вложенную структуру, это не python
 		if($type == 'time') { // надеемся, что время прислали до содержательных данных
 			$dataTime = strtotime($value);
 			if(!$dataTime) $dataTime = $now;
 		}
-		else $dataTime = $now;
 		$gpsdData['TPV'][$inGpsdData['device']]['cachedTime'][$type] = $dataTime;
 		$gpsdDataUpdated['TPV'] = TRUE;
 	}
@@ -266,6 +264,8 @@ case 'netAIS':
 case 'AIS':
 	//echo "JSON AIS Data:\n"; print_r($inGpsdData); echo "\n";
 	$vehicle = trim((string)$inGpsdData['mmsi']);
+	//if(($vehicle === '371255000') or ($vehicle === '269057683') or ($vehicle == '269057683')) { echo "\nJSON AIS Data:\n"; print_r($inGpsdData); echo "\n"; $trgt = $vehicle;}
+	//if($vehicle == '244770791') { echo "\nJSON AIS Data:\n"; print_r($inGpsdData); echo "\n"; $trgt = $vehicle;}
 	$gpsdData['AIS'][$vehicle]['data']['mmsi'] = $vehicle;
 	if($inGpsdData['netAIS']) $gpsdData['AIS'][$vehicle]['netAIS'] = 1; 	// 
 	//echo "\n AIS sentence type ".$inGpsdData['type']."\n";
@@ -430,6 +430,8 @@ if($gpsdData['AIS']) {	// IF быстрей, чем обработка Warning?
 		if(($now - $vehicle['timestamp'])>$noVehicleTimeout) {
 			unset($gpsdData['AIS'][$id]); 	// удалим цель, последний раз обновлявшуюся давно
 			$gpsdDataUpdated['AIS'] = TRUE;
+			//echo "Цель AIS ".$id." протухла совсем                     \n";
+			//if($id === $trgt) {echo "Цель AIS ".$id." протухла совсем                     \n";};
 			continue;	// к следующей цели AIS
 		}
 		foreach($gpsdData['AIS'][$id]['cachedTime'] as $type => $cachedTime){ 	// поищем, не протухло ли чего
@@ -437,11 +439,13 @@ if($gpsdData['AIS']) {	// IF быстрей, чем обработка Warning?
 				unset($gpsdData['AIS'][$id]['data'][$type]);
 				$gpsdDataUpdated['AIS'] = TRUE;
 				//echo "Данные AIS ".$type." для судна ".$id." протухли.                                       \n";
+				//if($id === $trgt) {echo "Данные AIS ".$type." для судна ".$id." протухли.                                       \n";};
 			}
 		}
 	}
 }
 
+//if($trgt) { echo "\ntrgt=$trgt; gpsdData['AIS'][trgt]:\n"; print_r($gpsdData['AIS'][$trgt]); echo "\n"; $trgt=null;}
 //echo "\n gpsdDataUpdated\n"; print_r($gpsdDataUpdated);
 //echo "\n gpsdData\n"; print_r($gpsdData);
 //echo "\n gpsdData AIS\n"; print_r($gpsdData['AIS']);
