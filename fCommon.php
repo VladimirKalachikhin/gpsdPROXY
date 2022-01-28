@@ -237,7 +237,6 @@ case 'SKY':
 	break;
 case 'TPV':
 	// собирает данные по устройствам, в том числе и однородные
-	if(!isset($inInstrumentsData['time'])) $inInstrumentsData['time'] = date(DATE_ATOM,$now);	// ISO8601 
 	$dataTime = $now;
 	foreach($inInstrumentsData as $type => $value){ 	// обновим данные
 		$instrumentsData['TPV'][$inInstrumentsData['device']]['data'][$type] = $value; 	// php создаёт вложенную структуру, это не python
@@ -510,7 +509,7 @@ global $gpsdData;
 // нужно собрать свежие данные от всех устройств в одно "устройство". 
 // При этом окажется, что координаты от одного приёмника ГПС, а ошибка этих координат -- от другого, если первый не прислал ошибку
 $WATCH = array();
-$lasts = array();
+$lasts = array(); $times = array();
 foreach($gpsdData['TPV'] as $device => $data){
 	// при отсутствии надёжных координат от этого устройства не будем собирать координаты
 	if($data['data']['mode']<2){	// no fix, mode всегда есть
@@ -521,11 +520,13 @@ foreach($gpsdData['TPV'] as $device => $data){
 	foreach($data['data'] as $type => $value){
 		if($type=='device') continue;	// необязательный параметр. Указать своё устройство?
 		if($data['cachedTime'][$type]<=@$lasts[$type]) continue;	// что лучше -- старый 3D fix, или свежий 2d fix?
+		if($type=='lat' or $type=='lon' or $type=='time') $times[] = $data['cachedTime'][$type];
 		// присвоим только свежие значения
 		$WATCH[$type] = $value;
 		$lasts[$type] = $data['cachedTime'][$type];
 	}
 }
+$WATCH['time'] = date(DATE_ATOM,min($times));	// могут быть присланы левые значения времени, или не присланы совсем
 return $WATCH;
 } // end function makeWATCH
 
