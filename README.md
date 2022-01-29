@@ -1,5 +1,5 @@
 # gpsdPROXY daemon [![License: CC BY-SA 4.0](https://img.shields.io/badge/License-CC%20BY--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-sa/4.0/)
-**version 0.4**
+**version 0.5**
 
 It is very convenient to access the **[gpsd](https://gpsd.io/)** from web apps with asynchronous request [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) But there are problems:  
 >**First**, the AIS data not available by ?POLL; request.  
@@ -10,10 +10,21 @@ Details and discussion see:
 [https://lists.nongnu.org/archive/html/gpsd-users/2020-04/msg00093.html](https://lists.nongnu.org/archive/html/gpsd-users/2020-04/msg00093.html)  
 [https://lists.nongnu.org/archive/html/gpsd-users/2021-06/msg00017.html](https://lists.nongnu.org/archive/html/gpsd-users/2021-06/msg00017.html)  
 
-This cache/proxy daemon collect AIS and all TPV data from **gpsd** during the user-defined lifetime and gives them by [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) request of the **gpsd** protocol.  
+## Features
+This cache/proxy daemon collect AIS and all TPV data from **gpsd** or other source during the user-defined lifetime and gives them by [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) request of the **gpsd** protocol.  
 So data from AIS stream and instruments such as echosounder and wind meter become available via ?POLL; request.  
 
-In addition, you may use ?WATCH={"enable":true,"json":true} stream, just like from original **gpsd**. The difference is a user-defined "epoch" separately by data type.
+In addition, you may use ?WATCH={"enable":true,"json":true} stream, just like from original **gpsd**. The difference is a user-defined "epoch" separately by data type.  
+
+### Data source
+Normally, the gpspPROXY works with **gpsd** on the same or the other machine. In this case, the data is the most complete and reliable.
+
+#### VenusOS
+The gpsdPROXY can work in VenusOS v2.80~38 or above. Or get data from any version via LAN. To do this, you need to enable "MQTT on LAN" feature. On VenusOS remote console go Settings -> Services -> MQTT on LAN (SSL) and Enable.
+
+##### limitations
+* VenusOS does not provide depth and AIS services.
+* The data provided by VenusOS are not reliable enough, so be careful.
 
 ## Usage
 ```
@@ -39,7 +50,6 @@ The output same as described for **gpsd**, exept:
 
 * The DEVICES response of the WATCH command include one device only: the daemon self. So no need to merge data from similar devices -- the daemon do it.
 * _sky_ array in POLL object is empty.
-* Time are UNIX timestamp.
 * AIS object missing in WATCH response
 * Added _ais_ array to POLL object and WATCH response with key = mmsi and value as described [AIS DUMP FORMATS](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_ais_dump_formats) section, except:  
 
@@ -49,4 +59,5 @@ The output same as described for **gpsd**, exept:
 >* Draught in meters
 >* Length in meters
 >* Beam in meters
->* time are UNIX timestamp
+>* No 'second' field, but has 'timestamp' as unix time.
+

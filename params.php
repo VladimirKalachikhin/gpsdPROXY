@@ -22,12 +22,13 @@ $gpsdProxyTimeouts = array(  	// время в секундах после по�
 	'errS' => 30,
 	'magtrack' => 10, 	// магнитный курс
 	'magvar' => 3600, 	// магнитное склонение
-	'depth' => 5, 	// глубина
+	'depth' => 5, 		// глубина
 	'wanglem' => 3, 	// Wind angle magnetic in degrees.
 	'wangler' => 3, 	// Wind angle relative in degrees.
 	'wanglet' => 3, 	// Wind angle true in degrees.
 	'wspeedr' => 3, 	// Wind speed relative in meters per second.
-	'wspeedt' => 3 	// Wind speed true in meters per second.
+	'wspeedt' => 3, 	// Wind speed true in meters per second.
+	'time' => 10		// Set same as lat lon. Regiure!
 ),
 'AIS' => array( 	// AIS datatypes
 	'status' => 86400, 	// Navigational status, one day сутки
@@ -44,11 +45,20 @@ $gpsdProxyTimeouts = array(  	// время в секундах после по�
 // время в секундах, в течении которого цель AIS сохраняется в кеше после получения от неё последней информации
 $noVehicleTimeout = 60*60; 	// seconds, time of continuous absence of the vessel in AIS, when reached - is deleted from the data. "when a ship is moored or at anchor, the position message is only broadcast every 180 seconds;"
 
-// Подключение к gpsd
-// gpsd host and port
-$gpsdProxyGPSDhost = 'localhost';
-$gpsdProxyGPSDport = 2947;
-//$gpsdProxyGPSDport = 2222;
+// адрес и порт источника координат и остальных данных, по умолчанию -- gpsd
+// host and port of instruments data source, gpsd by default
+
+//$dataSourceHost = 'localhost';	// default
+//$dataSourcePort = 2947;	// default gpsd
+
+/* Можно указать только тип источника данных: gpsd, venusos или signalk, если порт стандартный, а хост -- localhost
+если же источники типа venusos или signalk не будут обнаружены на локальном компьютере, будет сделана попытка
+найти их в сети как venus.local или signalk.local
+
+You may set only dataSourceType ('gpsd', 'venusos' or 'signalk') if service present on localhost on standard port.
+If service will not present on localhost will be attempt to find service in LAN as venus.local or signalk.local
+*/
+//$dataSourceType = 'gpsd';	// default
 
 // Отключение от gpsd
 // Freeing gpsd

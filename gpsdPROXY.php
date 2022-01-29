@@ -23,6 +23,9 @@ $ cgps localhost:3838
 $ telnet localhost 3838
 */
 /*
+Version 0.5.0
+
+0.5.0	rewritten to module structure and add VenusOS data source. Used https://github.com/bluerhinos/phpMQTT with big changes.
 0.4.1	remove lat lon from WATCH flow if mode < 2 (no fix). On POLL stay as received.
 */
 chdir(__DIR__); // задаем директорию выполнение скрипта
@@ -34,11 +37,13 @@ if(IRun()) { 	// Я ли?
 	echo "I'm already running, exiting.\n"; 
 	return;
 }
+
 // Self data
 // собственно, собираемые / кешируемые данные
 @mkdir(pathinfo($backupFileName, PATHINFO_DIRNAME));
-$gpsdData = @json_decode(@file_get_contents($backupFileName), true);
-if(!$gpsdData) $gpsdData = array(); 	
+if(@filemtime($backupFileName)<(time()-86400)) @unlink($backupFileName);	// файл был обновлён более суток назад
+else $instrumentsData = @json_decode(@file_get_contents($backupFileName), true);
+if(!$instrumentsData) $instrumentsData = array(); 	
 $lastBackupSaved = 0;	// время последнего сохранения кеша
 $lastClientExchange = 0;	// время последней коммуникации какого-нибудь клиента
 
@@ -51,12 +56,8 @@ $gpsdProxydevice = array(
 'flags' => $SEEN_GPS | $SEEN_AIS,
 'stopbits' => 1
 );
-
 if(!$gpsdProxyHost) $gpsdProxyHost='localhost'; 	// я сам. Хост/порт для обращения к gpsdProxy
 if(!$gpsdProxyPort) $gpsdProxyPort=3838;
-if(!$gpsdProxyGPSDhost) $gpsdProxyGPSDhost = 'localhost'; 	// источник данных для кеширования, обычно gpsd
-if(!$gpsdProxyGPSDport) $gpsdProxyGPSDport = 2947;
-
 $pollWatchExist = FALSE;	// флаг, что есть сокеты в режиме WATCH, когда данные им посылаются непрерывно
 $minSocketTimeout = 86400;	// сек., сутки
 // определим, какое минимальное время протухания величины указано в конфиге
@@ -66,19 +67,81 @@ array_walk_recursive($gpsdProxyTimeouts, function($val){
 										});
 //echo "minSocketTimeout=$minSocketTimeout;\n";
 
-$sockets = array(); 	// список функционирующих сокетов
-$masterSock = createSocketServer($gpsdProxyHost,$gpsdProxyPort,20); 	// Соединение для приёма клиентов, входное соединение
-$gpsdSock = createSocketClient($gpsdProxyGPSDhost,$gpsdProxyGPSDport); 	// Соединение с gpsd
-//echo "masterSock=$masterSock; gpsdSock=$gpsdSock;\n";
+
+
+
 
 // Поехали
-// Подключимся к gpsd
-echo "Socket to gpsd opened, do handshaking\n";
-$devicePresent = connectToGPSD($gpsdSock);
-if($devicePresent===FALSE) exit("Handshaking fail: gpsd not run, bye     \n");
-echo "Handshaked, will recieve data from gpsd\n";
+$dataSock = NULL; 	// Сокет к источнику данных, может не быть, как оно в VenusOS. Определяется в require
+// Определим, к кому подключаться для получения данных
+switch($dataSourceType){
+case 'venusos':
+	if(!$dataSourceHost) $dataSourceHost = 'localhost';	
+	if(!$dataSourcePort) $dataSourcePort = 1883;	
+	$res = chkVenusOSpresent($dataSourceHost,$dataSourcePort);
+	if($res){
+		if(is_array($res)) list($dataSourceHost,$dataSourcePort) = $res;
+		echo "Found VenusOS # $VenusOSsystemSerial on $dataSourceHost:$dataSourcePort\n";
+		require('venusos.php');
+	}
+	break;
+/*
+case 'signalk':
+	if(!$dataSourceHost) $dataSourceHost = 'localhost';	
+	if(!$dataSourcePort) $dataSourcePort = 3000;	
+	if($res = chkGPSDpresent($dataSourceHost,$dataSourcePort)){
+		if(is_array($res)) list($dataSourceHost,$dataSourcePort) = $res;
+		echo "Found Signal K\n";
+		require('signalk.php');
+	}
+	break;
+*/
+default:	// gpsd
+	if(!$dataSourceHost) $dataSourceHost = 'localhost';	
+	if(!$dataSourcePort) $dataSourcePort = 2947;	
+	if(chkGPSDpresent($dataSourceHost,$dataSourcePort)) {
+		echo "Found gpsd on $dataSourceHost:$dataSourcePort\n";
+		require('gpsd.php');
+	}
+	else { 	// попробуем Signal K
+		$dataSourceHost = 'localhost';	
+		$dataSourcePort = 3000;	
+		$res = chkSignalKpresent($dataSourceHost,$dataSourcePort);
+		if($res){
+			if(is_array($res)) list($dataSourceHost,$dataSourcePort) = $res;
+			echo "Found Signal K on $dataSourceHost:$dataSourcePort\n";
+			require('signalk.php');
+		}
+		else {	// попробуем VenusOS
+			$dataSourceHost = 'localhost';	
+			$dataSourcePort = 1883;	
+			$res = chkVenusOSpresent($dataSourceHost,$dataSourcePort);
+			if($res){
+				if(is_array($res)) list($dataSourceHost,$dataSourcePort) = $res;
+				echo "Found VenusOS # $VenusOSsystemSerial on $dataSourceHost:$dataSourcePort\n";
+				require('venusos.php');
+			}
+		}
+	}
+}
+if(!$dataSourceHumanName) {	// обязательно должна быть в файле require
+	echo "No any data source found, exiting.\n"; 
+	return;
+}
+$sockets = array(); 	// список функционирующих сокетов
+$masterSock = createSocketServer($gpsdProxyHost,$gpsdProxyPort,20); 	// Соединение для приёма клиентов, входное соединение
+//echo "masterSock=$masterSock; gpsdSock=$dataSock;\n";
+
+// Подключимся к источнику данных
+echo "Socket to $dataSourceHumanName opened, do handshaking                                   \n";
+$devicePresent = dataSourceConnect($dataSourceConnectionObject);	// реально $devicePresent нигде не используются, кроме как ниже. Можно использовать как-нибудь?
+//var_dump($devicePresent);
+if($devicePresent===FALSE) exit("Handshaking fail: MQTT server in $dataSourceHumanName on $dataSourceHost:$dataSourcePort not answer, bye     \n");
+echo "Handshaked, will recieve data from $dataSourceHumanName\n";
 if(!$devicePresent) echo"but no required devices present     \n";
-/*массив "номер сокета в массиве $sockets" => "массив [
+
+$messages = array(); 	// 
+/*$messages: массив "номер сокета в массиве $sockets" => "массив [
 'output'=> array(сообщений), // сообщения для отправки через этот сокет на следующем обороте
 'PUT'=>TRUE/FALSE,	// признак, что данные надо брать из этого сокета, а не от gpsd. А оно надо?
 'POLL'=>TRUE/FALSE/WATCH,	// признак режима, в котором функционирует сейчас этот сокет
@@ -88,28 +151,29 @@ if(!$devicePresent) echo"but no required devices present     \n";
 'zerocnt' => 0	// счётчик подряд посланных пустых сообщений. 
 ]" номеров сокетов подключившихся клиентов
 */
-$gpsdzerocnt = 0;
-$messages = array(); 	// 
+$dataSourceZeroCNT = 0;	// счётчик пустых строк, пришедших подряд от источника данных
 
 $socksRead = array(); $socksWrite = array(); $socksError = array(); 	// массивы для изменивших состояние сокетов (с учётом, что они в socket_select() по ссылке, и NULL прямо указать нельзя)
-echo "Ready to connection from $gpsdProxyHost:$gpsdProxyPort\n";
+echo "gpsdPROXY ready to connection on $gpsdProxyHost:$gpsdProxyPort\n";
 do {
 	//$startTime = microtime(TRUE);
 	$socksRead = $sockets; 	// мы собираемся читать все сокеты
 	$socksRead[] = $masterSock; 	// 
 	if($sockets) {
-		//echo "gpsdSock=$gpsdSock; gettype(gpsdSock):".gettype($gpsdSock).";\n";
-		if(gettype($gpsdSock)==='resource (closed)') chkSocks($gpsdSock);	// а как ещё узнать, что сокет закрыт? Массив error socket_select не помогает.
-		$socksRead[] = $gpsdSock; 	// есть клиенты -- нам нужно соединение с gpsd
-		$socksError[] = $gpsdSock; 	// 
-		$info = " and gpsd";
+		if($dataSock){	// может не быть, если данные берутся не прямо из сокета, а через какую-нибудь прокладку, как для VenusOS
+			//echo "gpsdSock=$dataSock; gettype(gpsdSock):".gettype($dataSock).";\n";
+			if(gettype($dataSock)==='resource (closed)') chkSocks($dataSock);	// а как ещё узнать, что сокет закрыт? Массив error socket_select не помогает.
+			$socksRead[] = $dataSock; 	// есть клиенты -- нам нужно соединение с источником данных
+			$socksError[] = $dataSock; 	// 
+		}
+		$info = " and $dataSourceHumanName";
 	}
-	else {	// клиентов нет -- можно закрыть соединеие с gpsd, чтобы он заснул приёмник гпс.
+	else {	// клиентов нет -- можно закрыть соединеие с источником данных, чтобы он заснул приёмник гпс.
 		if((time()-$lastClientExchange)>$noClientTimeout){
-			$msg = '?WATCH={"enable":false}'."\n";
-			$res = socket_write($gpsdSock, $msg, strlen($msg));
-			socket_close($gpsdSock);
-			echo "\ngpsd socket closed by no clients\n";
+			if( dataSourceClose($dataSourceConnectionObject)){
+				echo "\n$dataSourceHumanName socket closed by no clients\n";
+			}
+			else echo "No clients                                                          \r";
 			$info = "";
 		}
 	}
@@ -124,7 +188,12 @@ do {
 
 	//echo "\n\nНачало. Ждём, пока что-нибудь произойдёт\n";
 	if($pollWatchExist) $SocketTimeout = $minSocketTimeout;	// в принципе, $SocketTimeout можно назначать вместе с $pollWatchExist?
-	else $SocketTimeout = null;
+	else $SocketTimeout = 60;	// при тишине раз в минуту провернём цикл на предмет очистки от умерших сокетов
+	if(function_exists('altReadData')){
+		// Возьмём откуда-то данные каким-то левым способом. Применяется для venusos
+		if( altReadData($dataSourceConnectionObject) ) $SocketTimeout = 0;	// если данные были получены слева, из надо обработать, поэтому отключим ожидание чтения сокета
+		//else $SocketTimeout = $minSocketTimeout;	// если левый поток данных прервётся -- основной цикл обернётся только через $minSocketTimeout. Считаем, что возобновившийся поток не переполнит буфер сокета, и мф получим всё, что туда накидали. Но оно не надо, POLL пусть сам собирает данные.
+	}
 	//echo "pollWatchExist=$pollWatchExist; minSocketTimeout=$minSocketTimeout; SocketTimeout=$SocketTimeout;        \n";
 	$num_changed_sockets = socket_select($socksRead, $socksWrite, $socksError, $SocketTimeout); 	// должно ждать
 	echo "Has ".(count($sockets))." client socks, and master$info socks. Ready ".count($socksRead)." read and ".count($socksWrite)." write socks\r";	// в начале, потому что continue
@@ -133,7 +202,7 @@ do {
 	if ($socksError) { 	// Warning не перехватываются, включая supplied resource is not a valid Socket resource И смысл?
 		echo "socket_select: Error on sockets: " . socket_strerror(socket_last_error()) . "\n";
 		foreach($socksError as $socket){
-			chkSocks($socket); 
+			chkSocks($socket);
 		}
 	}
 
@@ -179,7 +248,7 @@ do {
 		continue;
 	}
 	foreach($socksRead as $socket){
-		//if($socket == $gpsdSock) echo "Read: gpsd socket\n";
+		//if($socket == $dataSock) echo "Read: $dataSourceHumanName socket\n";
 		if($socket == $masterSock) { 	// новое подключение
 			$sock = socket_accept($socket); 	// новый сокет для подключившегося клиента
 			if(!$sock or (get_resource_type($sock) != 'Socket')) {
@@ -202,7 +271,7 @@ do {
 		}
 		else {
 			$buf = @socket_read($socket, 2048, PHP_NORMAL_READ); 	// читаем построчно
-			// строки могут разделяться как \n, так и \r\n, но при PHP_NORMAL_READ reading stops at \n or \r, соотвественно, сперва строка закансивается на \r, а после следующего чтения - на \r\n, и только тогда можно заменить
+			// строки могут разделяться как \n, так и \r\n, но при PHP_NORMAL_READ reading stops at \n or \r, соотвественно, сперва строка заканчивается на \r, а после следующего чтения - на \r\n, и только тогда можно заменить
 			if($buf[-1]=="\n") $buf = trim($buf)."\n";
 			else $buf = trim($buf);
 		}
@@ -215,7 +284,7 @@ do {
 			//case 104:	// Connection reset by peer		если клиент сразу закроет сокет, в который он что-то записал, то ещё не переданная часть записанного будет отброшена. Поэтому клиент не закрывает сокет вообще, и он закрывается системой с этим сообщением. Но на этой стороне к моменту получения ошибки уже всё считано?
 			//	break;
 			default:
-				echo "\n\nFailed to read data from socket $sockKey by: " . socket_strerror(socket_last_error($socket)) . "\n"; 	// в общем-то -- обычное дело. Клиент закрывает соединение, сы об этом узнаём при попытке чтения. Если $sockKey == false, то это сокет к gpsd.
+				echo "Failed to read data from socket $sockKey by: " . socket_strerror(socket_last_error($socket)) . "                                 \n"; 	// в общем-то -- обычное дело. Клиент закрывает соединение, мы об этом узнаём при попытке чтения. Если $sockKey == false, то это сокет к gpsd.
 				chkSocks($socket);
 			}
 		    continue;	// к следующему сокету
@@ -224,30 +293,30 @@ do {
 		
 		// Собственно, содержательная часть
 		//echo "\nПринято:$buf|\n"; 	// здесь что-то прочитали из какого-то сокета
-		if(($socket == $gpsdSock) or (@$messages[$sockKey]['PUT'] == TRUE)){ 	// прочитали из соединения с gpsd или это сокет, с которого шлют данные
-			if($buf) $gpsdzerocnt = 0;
-			else $gpsdzerocnt++;
-			if($gpsdzerocnt>10){
-				echo "\n\nTo many empty strings from gpsd socket\n"; 	// бывает, gpsd умер, а сокет -- нет. Тогда из него читается пусто.
+		if(($socket == $dataSock) or (@$messages[$sockKey]['PUT'] == TRUE)){ 	// прочитали из соединения с источником данных
+			if($buf) $dataSourceZeroCNT = 0;
+			else $dataSourceZeroCNT++;
+			if($dataSourceZeroCNT>10){
+				echo "\n\nTo many empty strings from $dataSourceHumanName socket\n"; 	// бывает, источник данных умер, а сокет -- нет. Тогда из него читается пусто.
 				chkSocks($socket);
 				continue;	// к следующему сокету
 			}
 			//echo "\nbuf has type ".gettype($buf)." and=|$buf|\nwith error ".socket_last_error($socket)."\n";		
-			$inGpsdData = json_decode($buf,TRUE);
+			$inInstrumentsData = instrumentsDataDecode($buf);	// одно сообщение конкретного класса из потока
 			// А оно надо? Здесь игнорируются устройства, не представленные на этапе установления соединения 
 			// в ответ на WATCH. А вновь подключенные?
 			/*
-			if(!in_array($inGpsdData['device'],$devicePresent)) {  	// это не то устройство, которое потребовали
+			if(!in_array($inInstrumentsData['device'],$devicePresent)) {  	// это не то устройство, которое потребовали
 				continue;
 			}
 			*/
-			//echo "\n inGpsdData\n"; print_r($inGpsdData);
+			//echo "\n inInstrumentsData\n"; print_r($inInstrumentsData);
 			// Ok, мы получили требуемое
 			//if($messages[$sockKey]['PUT'] == TRUE) {
-			//	echo "\n Другой источник данных:	\n"; print_r($inGpsdData);
+			//	echo "\n Другой источник данных:	\n"; print_r($inInstrumentsData);
 			//}
-			updAndPrepare($inGpsdData); // обновим кеш и отправим данные для режима WATCH
-			//echo "\n gpsdData\n"; print_r($gpsdData);
+			updAndPrepare($inInstrumentsData); // обновим кеш и отправим данные для режима WATCH
+			//echo "\n gpsdData\n"; print_r($instrumentsData);
 			continue; 	// к следующему сокету
 		}
 
@@ -385,7 +454,7 @@ do {
 							$messages[$sockKey]['output'][] = json_encode(makeWATCH())."\r\n\r\n";
 							$messages[$sockKey]['output'][] = json_encode(makeAIS())."\r\n\r\n";
 						}
-						if($gpsdData["MOB"] and $gpsdData["MOB"]['status']) $messages[$sockKey]['output'][] = json_encode($gpsdData["MOB"])."\r\n\r\n";
+						if($instrumentsData["MOB"] and $instrumentsData["MOB"]['status']) $messages[$sockKey]['output'][] = json_encode($instrumentsData["MOB"])."\r\n\r\n";
 					}
 					else {
 						$messages[$sockKey]['POLL'] = TRUE; 	// отметим, что WATCH получили, можно отвечать на POLL
@@ -407,7 +476,7 @@ do {
 				break;
 			case 'POLL':
 				if(!$messages[$sockKey]['POLL']) continue 2; 	// на POLL будем отзываться только после ?WATCH={"enable":true}
-				// $POLL заполняется при каждом поступлении от gpsd новых данных					
+				// $POLL заполняется при каждом поступлении от источника данных новых данных					
 				$POLL = makePOLL();
 				switch(@$params['subscribe']){
 				case "TPV":
@@ -420,7 +489,7 @@ do {
 				$messages[$sockKey]['output'][] = json_encode($POLL)."\r\n\r\n"; 	// будем копить сообщения, вдруг клиент не готов их принять
 				unset($POLL);
 				break;
-			case 'CONNECT':	// подключение к другому gpsd. Используется, например, в netAISclient
+			case 'CONNECT':	// подключение к другому источнику данных. Используется, например, в netAISclient
 				//echo "\nrecieved CONNECT !\n";
 				if(@$params['host'] and @$params['port']) { 	// указано подключиться туда
 					// Видимо, разрешать переподключаться за пределы локальной сети как-то неправильно...
@@ -450,7 +519,7 @@ foreach($sockets as $socket) {
 	socket_close($socket);
 }
 socket_close($masterSock);
-socket_close($gpsdSock);
+socket_close($dataSock);
 
 
 function IRun() {
@@ -459,8 +528,11 @@ global $phpCLIexec;
 $pid = getmypid();
 //echo "ps -A w | grep '".pathinfo(__FILE__,PATHINFO_BASENAME),"'\n";
 $toFind = pathinfo(__FILE__,PATHINFO_BASENAME);
-exec("ps -A w | grep '$toFind'",$psList);
-if(!$psList) exec("ps w | grep '$toFind'",$psList); 	// for OpenWRT. For others -- let's hope so all run from one user
+@exec("ps -A w | grep '$toFind'",$psList);
+if(!$psList) { 	// for OpenWRT. For others -- let's hope so all run from one user
+	exec("ps w | grep '$toFind'",$psList);
+	echo "IRun: BusyBox based system found\n";
+}
 //echo "__FILE__=".__FILE__."; pid=$pid; phpCLIexec=$phpCLIexec; toFind=$toFind;\n"; print_r($psList); //
 $run = FALSE;
 foreach($psList as $str) {
