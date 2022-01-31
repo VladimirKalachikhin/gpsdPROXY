@@ -188,7 +188,7 @@ do {
 
 	//echo "\n\nНачало. Ждём, пока что-нибудь произойдёт\n";
 	if($pollWatchExist) $SocketTimeout = $minSocketTimeout;	// в принципе, $SocketTimeout можно назначать вместе с $pollWatchExist?
-	else $SocketTimeout = 60;	// при тишине раз в минуту провернём цикл на предмет очистки от умерших сокетов
+	else $SocketTimeout = 30;	// при тишине раз в  провернём цикл на предмет очистки от умерших сокетов
 	if(function_exists('altReadData')){
 		// Возьмём откуда-то данные каким-то левым способом. Применяется для venusos
 		if( altReadData($dataSourceConnectionObject) ) $SocketTimeout = 0;	// если данные были получены слева, из надо обработать, поэтому отключим ожидание чтения сокета
@@ -351,7 +351,7 @@ do {
 						case 'ping':
 						case 'pong':
 						default:
-							echo "A frame of type '$type' was dropped                                               \n";
+							echo "A frame of type '$type' was dropped                               \n";
 							if($decodedData === NULL){
 								echo "Frame decode fails, will close websocket\n";
 								chkSocks($socket);	// закроет сокет
