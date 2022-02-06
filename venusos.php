@@ -101,7 +101,7 @@ if($payload){
 		// здесь мы всегда работаем с одним приёмником ГПС (глубина в VenusOS где-то в другом месте, и её сейчас нет, также как и AIS), и нет способа выбрать лучший приёмник. Поэтому -- просто первый в списке.
 		$inInstrumentsData = array('class' => 'TPV', 'device' => $devicePresent[0], $accordance[$topic] => $msg);	// время -- время получения, поскольку времени в VenusOS нет. Но реально данные могли быть получены давно: у этих людей нет разницы между неизменным значением и новым значением с той же величиной.
 		//print_r($inInstrumentsData);
-		updAndPrepare($inInstrumentsData); // обновим кеш и отправим данные для режима WATCH
+		updAndPrepare(array($inInstrumentsData)); // обновим кеш и отправим данные для режима WATCH
 	}
 
 }
@@ -187,7 +187,7 @@ $accordance = array(
 if($accordance[$topic]){
 	$inInstrumentsData = array('class' => 'TPV', 'device' => $devicePresent[0], $accordance[$topic] => $msg);
 	//print_r($inInstrumentsData);
-	updAndPrepare($inInstrumentsData); // обновим кеш и отправим данные для режима WATCH
+	updAndPrepare(array($inInstrumentsData)); // обновим кеш и отправим данные для режима WATCH
 }
 
 } // end function venusosDataDecode

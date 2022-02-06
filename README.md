@@ -2,6 +2,7 @@
 **version 0.5**
 
 It is very convenient to access the **[gpsd](https://gpsd.io/)** from web apps with asynchronous request [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) But there are problems:  
+
 >**First**, the AIS data not available by ?POLL; request.  
 >**Second**, the data other them time-position-velocity (from GNSS reciever, in general) may not be included to ?POLL; request.
 
@@ -10,11 +11,17 @@ Details and discussion see:
 [https://lists.nongnu.org/archive/html/gpsd-users/2020-04/msg00093.html](https://lists.nongnu.org/archive/html/gpsd-users/2020-04/msg00093.html)  
 [https://lists.nongnu.org/archive/html/gpsd-users/2021-06/msg00017.html](https://lists.nongnu.org/archive/html/gpsd-users/2021-06/msg00017.html)  
 
+But this is a some strange software. Because the same functionality is present actually in **gpsd**: it collects a stream of data, aggregates it, and gives structured data on demand. The difference in the lifetime of the data. In **gpsdPROXY** it can be set explicitly and  separately by data type.  
+I believe that such functionality must be in **gpsd**. But there is no such thing.
+
+As a side, you may use **gpsdPROXY** to collect data from sources that do not have data lifetime control. For example, from VenusOS where there are no instruments data reliability control, or from SignalK, where there it timestamp at least.  
+Or just use **gpsdPROXY** as websocket proxy to **gpsd**.
+
 ## Features
 This cache/proxy daemon collect AIS and all TPV data from **gpsd** or other source during the user-defined lifetime and gives them by [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) request of the **gpsd** protocol.  
 So data from AIS stream and instruments such as echosounder and wind meter become available via ?POLL; request.  
 
-In addition, you may use ?WATCH={"enable":true,"json":true} stream, just like from original **gpsd**. The difference is a user-defined "epoch" separately by data type.  
+In addition, you may use ?WATCH={"enable":true,"json":true} stream, just like from original **gpsd**.   
 
 ### Data source
 Normally, the gpspPROXY works with **gpsd** on the same or the other machine. In this case, the data is the most complete and reliable.
@@ -25,6 +32,12 @@ The gpsdPROXY can work in VenusOS v2.80~38 or above. Or get data from any versio
 ##### limitations
 * VenusOS does not provide depth and AIS services.
 * The data provided by VenusOS are not reliable enough, so be careful.
+
+#### Signal K
+The gpsdPROXY can get data from Signal K local or via LAN. If it possible, gpsdPROXY find Signal K by yourself via zeroconf service or jast on standard port.
+
+##### Limitations
+Indeed, SignalK can be used from gpsdPROXY only local. Via LAN it's odd.
 
 ## Usage
 ```

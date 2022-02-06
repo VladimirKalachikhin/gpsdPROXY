@@ -1,9 +1,9 @@
 <?php
 /* Функции для работы с источником данных gpsd */
 
-$dataSourceHumanName = 'gpsd';	// Обязательно!!! Required!!!
-$dataSock = createSocketClient($dataSourceHost,$dataSourcePort); 	// Соединение с источником данных
-$dataSourceConnectionObject = $dataSock;
+$dataSourceHumanName = 'gpsd';	// 
+$dataSourceConnectionObject = createSocketClient($dataSourceHost,$dataSourcePort); 	// Соединение с источником данных
+
 function dataSourceConnect($dataSock){
 /* Return array(deviceID) of devices that return data */
 return connectToGPSD($dataSock);	// по историческим причинам
@@ -11,14 +11,14 @@ return connectToGPSD($dataSock);	// по историческим причина
 
 function dataSourceClose($dataSock){
 $msg = '?WATCH={"enable":false}'."\n";
-$res = socket_write($dataSock, $msg, strlen($msg));
-socket_close($dataSock);
+$res = @socket_write($dataSock, $msg, strlen($msg));
+@socket_close($dataSock);
 return true;
 } // end function dataSourceClose
 
 function instrumentsDataDecode($buf){
 /* Делает из полученного из сокета $buf данные в формате $instrumentsData, т.е. приводит их к формату 
-ответа gpsd в режиме ?WATCH={"enable":true,"json":true};, когда оно передаёт поток отдельных сообщений, типа:
+массива ответов gpsd в режиме ?WATCH={"enable":true,"json":true};, когда оно передаёт поток отдельных сообщений, типа:
 Array
 (
     [class] => TPV
@@ -37,7 +37,7 @@ Array
     [eph] => 0
 )
 */
-return json_decode($buf,TRUE);
+return array(json_decode($buf,TRUE));
 } // end function instrumentsDataDecode
 
 //function altReadData($dataSourceConnectionObject){

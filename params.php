@@ -13,6 +13,7 @@ $gpsdProxyTimeouts = array(  	// время в секундах после по�
 'TPV' => array( 	// time-position-velocity report datatypes
 	'altHAE' => 20, 	// Altitude, height above ellipsoid, in meters. Probably WGS84.
 	'altMSL' => 20, 	// MSL Altitude in meters. 
+	'alt' => 20, 	// legacy Altitude in meters. 
 	'lat' => 10,
 	'lon' => 10,
 	'track' => 10, 	// курс
@@ -59,11 +60,13 @@ You may set only dataSourceType ('gpsd', 'venusos' or 'signalk') if service pres
 If service will not present on localhost will be attempt to find service in LAN as venus.local or signalk.local
 */
 //$dataSourceType = 'gpsd';	// default
+//$dataSourceType = 'venusos';	// 
+//$dataSourceType = 'signalk';	// 
 
 // Отключение от gpsd
 // Freeing gpsd
 // Время, сек., через которое происходит отключение от gpsd при отсутствии клиентов. gpsd отключит датчики
-$noClientTimeout = 180;	// sec., disconnect from gpsd on no any client present
+$noClientTimeout = 90;	// sec., disconnect from gpsd on no any client present
 
 // Параметры сохранения кеша
 // Cache backup parms
