@@ -23,7 +23,7 @@ $ cgps localhost:3838
 $ telnet localhost 3838
 */
 /*
-Version 0.5.1
+Version 0.5.2
 
 0.5.1	add Signal K data source
 0.5.0	rewritten to module structure and add VenusOS data source. Used https://github.com/bluerhinos/phpMQTT with big changes.
@@ -120,6 +120,7 @@ do {
 			$socksError[] = $dataSourceConnectionObject; 	// 
 		}
 		elseif(gettype($dataSourceConnectionObject)==='resource (closed)') {
+			//echo "Попытаемся переоткрыть умерший источник данных    \n";
 			chkSocks($dataSourceConnectionObject);	// а как ещё узнать, что сокет закрыт? Массив error socket_select не помогает.
 		}
 		$info = " and $dataSourceHumanName";
@@ -150,7 +151,9 @@ do {
 		if( altReadData($dataSourceConnectionObject) ) $SocketTimeout = 0;	// если данные были получены слева, из надо обработать, поэтому отключим ожидание чтения сокета
 	}
 	//echo "pollWatchExist=$pollWatchExist; minSocketTimeout=$minSocketTimeout; SocketTimeout=$SocketTimeout;        \n";
+
 	$num_changed_sockets = socket_select($socksRead, $socksWrite, $socksError, $SocketTimeout); 	// должно ждать
+
 	//echo "\nnum_changed_sockets=$num_changed_sockets;      \n";
 	echo "Has ".(count($sockets))." client socks, and master$info socks. Ready ".count($socksRead)." read and ".count($socksWrite)." write socks\r";	// в начале, потому что continue
 
@@ -179,7 +182,7 @@ do {
 				$messages[$n]['protocol'] = 'WS';
 			}
 			
-			$msgLen = strlen($msg);
+			$msgLen = mb_strlen($msg,'8bit');
 			$res = socket_write($socket, $msg, $msgLen);
 			if($res === FALSE) { 	// клиент умер
 				echo "\n\nFailed to write data to socket by: " . socket_strerror(socket_last_error($sock)) . "\n";
@@ -211,14 +214,14 @@ do {
 			if(!$sock or (get_resource_type($sock) != 'Socket')) {
 				echo "Failed to accept incoming by: " . socket_strerror(socket_last_error($socket)) . "\n";
 				chkSocks($socket); 	// recreate masterSock
-				continue;
+				continue;	// к следующему сокету
 			}
 			$lastClientExchange = time();
 			$sockets[] = $sock; 	// добавим новое входное подключение к имеющимся соединениям
 			$sockKey = array_search($sock,$sockets);	// Resource id не может быть ключём массива, поэтому используем порядковый номер. Что стрёмно.
 			$messages[$sockKey]['greeting']=FALSE;	// укажем, что приветствие не посылали. Запрос может быть не только как к gpsd, но и как к серверу websocket
-			//echo "New client connected:$sockKey!                                                      \n";
-		    continue; 	// 
+			//echo "New client connected: $sock with key $sockKey                                                      \n";
+		    continue; 	//  к следующему сокету
 		}
 		// Читаем сокет
 		$sockKey = @array_search($socket,$sockets); 	// 
@@ -249,13 +252,13 @@ do {
 		$lastClientExchange = time();
 		
 		// Собственно, содержательная часть
-		//echo "\nПринято:$buf|\n"; 	// здесь что-то прочитали из какого-то сокета
+		//echo "\nПринято из сокета № $sockKey $socket:$buf|\n"; 	// здесь что-то прочитали из какого-то сокета
 		if(($socket == $dataSourceConnectionObject) or (@$messages[$sockKey]['PUT'] == TRUE)){ 	// прочитали из соединения с источником данных
 			if($buf) $dataSourceZeroCNT = 0;
 			else {
 				$dataSourceZeroCNT++;
 				if($dataSourceZeroCNT>10){
-					echo "\n\nTo many empty strings from $dataSourceHumanName socket\n"; 	// бывает, источник данных умер, а сокет -- нет. Тогда из него читается пусто.
+					echo "\nTo many empty strings from $dataSourceHumanName socket       \n"; 	// бывает, источник данных умер, а сокет -- нет. Тогда из него читается пусто.
 					chkSocks($socket);
 				}
 				continue;	// к следующему сокету
@@ -283,123 +286,178 @@ do {
 		if($buf) $messages[$sockKey]['zerocnt'] = 0;
 		else $messages[$sockKey]['zerocnt']++;
 		if($messages[$sockKey]['zerocnt']>10){
-			echo "\n\nTo many empty strings from socket $sockKey\n"; 	// бывает, клиент умер, а сокет -- нет. Тогда из него читается пусто.
+			echo "\n\nTo many empty strings from client socket #$sockKey $socket \n"; 	// бывает, клиент умер, а сокет -- нет. Тогда из него читается пусто.
 			chkSocks($socket);
 		    continue;	// к следующему сокету
 		}
-		//echo "\nПРИНЯТО ОТ КЛИЕНТА $sockKey:\n|$buf|\n";
+		//echo "\nПРИНЯТО ОТ КЛИЕНТА # $sockKey $socket ".mb_strlen($buf,'8bit')." байт\n";
 		//print_r($messages[$sockKey]);
 		if($messages[$sockKey]['greeting']===TRUE){ 	// с этим сокетом уже беседуем, значит -- пришли данные	
 			switch($messages[$sockKey]['protocol']){
 			case 'WS':	// ответ за запрос через websocket, здесь нет конца передачи, посылается сколько-то фреймов.
-				//echo "\nПРИНЯТО из вебсокета:\n|$buf|\n";
+				//echo "\nПРИНЯТО  из вебсокета ОТ КЛИЕНТА $sockKey $socket ".mb_strlen($buf,'8bit')." байт\n";
 				//print_r(wsDecode($buf));
+				// бывают склеенные и неполные фреймы
+				// там может быть: 1) неполный фрейм; 2) сколько-то полных фреймов, и, возможно, неполный
+				// но нет полного сообщения; 3) завершение сообщения, плюс что-то ещё; 4) полное сообщение,
+				// плюс, возможно, что-то ещё
 				$n = 0;
-				do{	// склеенные фреймы
-					list($decodedData,$type,$FIN,$tail) = wsDecode($buf);
-					$buf = $tail;
+				do{	// выделим из полученного полные фреймы
 					$n++;
-					//echo "type=$type; FIN=$FIN;|$tail|\n";
-					//echo "$decodedData\n";
-					if($type != 'text'){
-						switch($type){
+					if($messages[$sockKey]['FIN']=='partFrame') {
+						//echo "предыдущий фрейм был неполный, к имеющимся ".mb_strlen($messages[$sockKey]['partFrame'],'8bit')." байт добавлено полученные ".mb_strlen($buf,'8bit')." байт, получилось ".(mb_strlen($messages[$sockKey]['partFrame'],'8bit')+mb_strlen($buf,'8bit'))." байт $n \n";
+						$buf = $messages[$sockKey]['partFrame'].$buf;	
+					}
+					
+					$res = wsDecode($buf);	// собственно декодирование: вытаскивание из потока байт фреймов
+					$buf = null;
+					if($res == FALSE){
+						//echo "Bufer decode fails, will close websocket\n";
+						chkSocks($socket);	// закроет сокет
+						continue 3;	// к следующему сокету						
+					}
+					else list($decodedData,$type,$FIN,$tail) = $res;
+
+					$messages[$sockKey]['FIN'] = $FIN;
+					
+					// ping -- это фрейм, а не сообщение, как сказано в rfc6455, 
+					// однако этот фрейм имеет первый бит ws-frame раный 1, т.е., это последний фрейм сообщения.
+					// Таким образом, ping -- это сообщение из одного фрейма, которое может придти посередине другого сообщения?
+					
+					switch($FIN){
+					case 'messageComplete':	// СООБЩЕНИЕ ПРИНЯТО: в буфере последний фрейм сообщения -- полностью, он имеет тип $messages[$sockKey]['frameType'] и декодирован в $decodedData. Возможно, есть ещё полные или неполные фреймы, они находятся в $tail и не декодированы
+						$buf = $tail;	// возможно, там ещё есть полные фреймы
+						
+						//echo "Сообщение принято $n \n";
+						if($type) {
+							//echo "в одном фрейме\n";
+							$realType = $type;
+						}
+						else {
+							//echo "в нескольких фреймах\n";
+							$realType = $messages[$sockKey]['frameType'];
+						}
+						/*
+						if($tail) {	// есть уже следующее сообщение
+							echo "однако, в буфере ".mb_strlen($tail,'8bit')." байт \n";
+						}
+						*/
+						switch($realType){	// 
+						case 'text':	// требуемое
+							$messages[$sockKey]['inBuf'] .= $decodedData;	// 
+							//echo "Принято текстовое сообщение длиной ".mb_strlen($messages[$sockKey]['inBuf'],'8bit')." байт\n";
+							//echo "decoded data={$messages[$sockKey]['inBuf']};\n";
+							if(rtrim($messages[$sockKey]['inBuf'])){	// пустые строки, пришедшие отдельным сообщением не записываем
+								$messages[$sockKey]['inBufS'][] = $messages[$sockKey]['inBuf'];	// всегда для websockets будем складывать сообщения в массив
+							}
+							$messages[$sockKey]['inBuf'] = $tail;
+							$messages[$sockKey]['partFrame'] = '';
+							$messages[$sockKey]['frameType'] = null;
+							break;
 						case 'close':
+							//echo "От клиента принято требование закрыть соединение.    \n";
 							chkSocks($socket);	// закроет сокет
-							break 3;
-						case 'binary':
-						case 'ping':
+							continue 5;	// к следующему сокету
+						case 'ping':	// An endpoint MAY send a Ping frame any time after the connection is    established and before the connection is closed.
 						case 'pong':
+						case 'binary':
 						default:
-							echo "A frame of type '$type' was dropped                               \n";
-							if($decodedData === NULL){
+							echo "A frame of type '$type' was dropped $n                              \n";
+							if($decodedData === null){
 								echo "Frame decode fails, will close websocket\n";
 								chkSocks($socket);	// закроет сокет
-								break 3;
+								continue 5;	// к следующему сокету
 							}
-							continue 2;
 						}
+						//echo "type={$messages[$sockKey]['frameType']}; FIN=$FIN;n=$n; tail:|$tail|\n";
+						break;
+					case 'partFrame':	// в буфере -- неполный фрейм, он не декодирован ($decodedData==null) и возвращён в $tail
+						//echo "Принят неполный фрейм типа $type, размером ".mb_strlen($tail,'8bit')." байт $n\n";
+						if($type) {	// это первый фрейм. 
+							$messages[$sockKey]['frameType'] = $type;
+							//echo "это первый фрейм $n\n";
+						}
+						if($messages[$sockKey]['frameType']) 	{
+							$messages[$sockKey]['partFrame'] = $tail;	// я присоединяю перед декодированием
+							continue 4;	// к следующему сокету
+						}
+						else {	// всё кривое, скажем, после приёма нормального фрейма. Однако, принятое надо обработать.
+							//echo "однако тип его неизвестен. Игнорируем остаток данных.          \n";
+							$messages[$sockKey]['inBuf'] = '';
+							$messages[$sockKey]['partFrame'] = '';
+						}
+						break;
+					default:	// непоследний фрейм сообщения полностью, и, возможно, что-то ещё
+						if($type) {	// это первый фрейм. 
+							$messages[$sockKey]['frameType'] = $type;
+							//echo "Получен первый фрейм $n\n";
+						}
+						//echo "Собираем сообщение типа {$messages[$sockKey]['frameType']}, декодировано ".mb_strlen($decodedData,'8bit')." байт $n\n";
+						$messages[$sockKey]['inBuf'] .= $decodedData;	// собираем сообщение
+						$buf = $tail;	// для декодирования на следующем обороте ближайшего do
 					}
-					//echo "type=$type; FIN=$FIN;n=$n;|$tail||$buf|\n";
-					//echo "type=$type; FIN=$FIN;n=$n;\n";
-					//echo "$decodedData\n";
-					if($FIN){ 	// сообщение (возможно, из нескольких фреймов) закончилось
-						$messages[$sockKey]['inBuf'] .= rtrim($decodedData,';').';';	// полагая, что это команда gpsd
-					}
-					else $messages[$sockKey]['inBuf'] .= $decodedData;
-				}while($buf);
-				if($FIN){
-					$buf = $messages[$sockKey]['inBuf'];
-					$messages[$sockKey]['inBuf'] = '';
-					if(strlen($buf)==1) $buf = '';	// ;
-				}
-				//echo "websocket buf=|$buf|\n";
-				if(!$buf) continue 2;
-				break;	// case
-			}
+				}while($buf);	// выбрали полные фреймы, в $tail -- неполный
+				if(!$tail) $messages[$sockKey]['inBuf'] = '';
+
+				$buf = $messages[$sockKey]['inBufS'];
+				//echo "Принято от websocket'а:"; print_r($buf);
+				if(!$buf) continue 2;	// к следующему сокету
+				break;	// case protocol WS
+			} // end switch protocol
 		}
 		else{ 	// с этим сокетом ещё не беседовали, значит, пришёл заголовок или команда gpsd или ничего, если сокет просто открыли
-			if(trim($buf[0])!='?'){ 	// это не команда протокола gpsd	PHP Notice:  Uninitialized string offset
-				// разберёмся с заголовком
-				if(!isset($messages[$sockKey]['inBuf'])) $messages[$sockKey]['inBuf'] = '';
-				$messages[$sockKey]['inBuf'] .= "$buf";	// собираем заголовок
-				//echo "Собрано:|{$messages[$sockKey]['inBuf']}|";
-				if(substr($messages[$sockKey]['inBuf'],-2)=="\n\n"){	// конец заголовков (и вообще сообщения) -- пустая строка
-					//echo "Заголовок: |{$messages[$sockKey]['inBuf']}|\n";
-					$messages[$sockKey]['inBuf'] = explode("\n",$messages[$sockKey]['inBuf']);
-					foreach($messages[$sockKey]['inBuf'] as $msg){	// поищем в заголовке
-						$msg = explode(':',$msg,2);
-						array_walk($msg,function(&$str,$key){$str=trim($str);});
-						if($msg[0]=='Sec-WebSocket-Key'){
-							$SecWebSocketAccept = base64_encode(pack('H*',sha1($msg[1].'258EAFA5-E914-47DA-95CA-C5AB0DC85B11')));	// https://datatracker.ietf.org/doc/html/rfc6455#section-1.2 https://habr.com/ru/post/209864/
-						}
-						elseif($msg[0]=='Upgrade' and $msg[1]=='websocket') $messages[$sockKey]['protocol'] = 'WS handshake';	// это запрос на общение по websocket
+			// разберёмся с заголовком
+			if(!isset($messages[$sockKey]['inBuf'])) $messages[$sockKey]['inBuf'] = '';
+			$messages[$sockKey]['inBuf'] .= "$buf";	// собираем заголовок
+			//echo "Собрано:|{$messages[$sockKey]['inBuf']}|";
+			if(substr($messages[$sockKey]['inBuf'],-2)=="\n\n"){	// конец заголовков (и вообще сообщения) -- пустая строка
+				//echo "Заголовок: |{$messages[$sockKey]['inBuf']}|\n";
+				$messages[$sockKey]['inBuf'] = explode("\n",$messages[$sockKey]['inBuf']);
+				foreach($messages[$sockKey]['inBuf'] as $msg){	// поищем в заголовке
+					$msg = explode(':',$msg,2);
+					array_walk($msg,function(&$str,$key){$str=trim($str);});
+					if($msg[0]=='Sec-WebSocket-Key'){
+						$SecWebSocketAccept = base64_encode(pack('H*',sha1($msg[1].'258EAFA5-E914-47DA-95CA-C5AB0DC85B11')));	// https://datatracker.ietf.org/doc/html/rfc6455#section-1.2 https://habr.com/ru/post/209864/
 					}
-					// определился протокол
-					switch($messages[$sockKey]['protocol']){
-					case 'WS handshake':	// ответ за запрос через websocket, в минимальной форме, иначе Chrom не понимает
-						$SecWebSocketAccept = 
-							"HTTP/1.1 101 Switching Protocols\r\n"
-							."Upgrade: websocket\r\n"
-							."Connection: Upgrade\r\n"
-							."Sec-WebSocket-Accept: ".$SecWebSocketAccept."\r\n"
-							."\r\n";			
-						//echo "SecWebSocketAccept=$SecWebSocketAccept;\n";
-						//echo "header sockKey=$sockKey;\n";
-						$messages[$sockKey]['output'] = array($SecWebSocketAccept,$greeting);	// 
-						break;
-					default:	// ответ вообще в сокет, как это для протокола gpsd
-						$messages[$sockKey]['output'][] = $greeting."\r\n\r\n";	// приветствие gpsd
-					}
-					//echo "sockKey=$sockKey;\n";
-					$messages[$sockKey]['greeting']=TRUE;
-					$messages[$sockKey]['inBuf'] = '';					
+					elseif($msg[0]=='Upgrade' and $msg[1]=='websocket') $messages[$sockKey]['protocol'] = 'WS handshake';	// это запрос на общение по websocket
 				}
-				//else continue;	// продолжаем собирать заголовок
-				continue;
-			}
-			else{ 	// это команда протокола gpsd. Она всегда одна строка, поэтому её не надо собирать, и неважно, на что она оканчивается.
-				$messages[$sockKey]['output'][] = $greeting."\n\n";	// приветствие gpsd
+				// определился протокол
+				switch($messages[$sockKey]['protocol']){
+				case 'WS handshake':	// ответ за запрос через websocket, в минимальной форме, иначе Chrom не понимает
+					$SecWebSocketAccept = 
+						"HTTP/1.1 101 Switching Protocols\r\n"
+						."Upgrade: websocket\r\n"
+						."Connection: Upgrade\r\n"
+						."Sec-WebSocket-Accept: ".$SecWebSocketAccept."\r\n"
+						."\r\n";			
+					//echo "SecWebSocketAccept=$SecWebSocketAccept;\n";
+					//echo "header sockKey=$sockKey;\n";
+					$messages[$sockKey]['output'] = array($SecWebSocketAccept,$greeting);	// 
+					$messages[$sockKey]['inBufS'] = array();	// для websocket будет ещё и буфер сообщений
+					break;
+				default:	// ответ вообще в сокет, как это для протокола gpsd
+					$messages[$sockKey]['output'][] = $greeting."\r\n\r\n";	// приветствие gpsd
+				}
+				//echo "sockKey=$sockKey;\n";
 				$messages[$sockKey]['greeting']=TRUE;
+				$messages[$sockKey]['inBuf'] = '';					
 			}
+			continue;	// к следующему сокету
 		}
 
 		// выделим команду и параметры
-		//echo "buf=|$buf|\n";
-		if($buf[0]!='?'){ 	// это не команда протокола gpsd
-			$buf = '';
-			continue;
-		}
-		$commands = explode(';',$buf); 	// 
-		foreach($commands as $command){
+		if(!is_array($buf))	$buf = explode(';',$buf); 	// 
+		foreach($buf as $command){
 			if(!$command) continue;
-			$command = substr($command,1);	// ?
+			if($command[0]!='?') continue; 	// это не команда протокола gpsd
+			$command = rtrim(substr($command,1),';');	// ? ;
 			list($command,$params) = explode('=',$command);
 			$params = trim($params);
 			//echo "\nClient $sockKey| command=$command; params=$params;\n";
 			if($params) $params = json_decode($params,TRUE);
 			// Обработаем команду
 			switch($command){
-			case 'WATCH': 	// default: ?WATCH={"enable":true};
+			case 'WATCH': 	// default: ?WATCH={"enable":true}; без параметров === {"enable":false} Это правильно?
 				if($params['enable'] == TRUE){
 					if(!$params or count($params)>1){ 	// 
 						$messages[$sockKey]['POLL'] = 'WATCH'; 	// отметим, что WATCH получили в виде, означающем, что это не POLL, надо слать данные непрерывно
@@ -430,7 +488,10 @@ do {
 					if($messages[$n]['protocol'] == 'WS'){
 						$messages[$sockKey]['output'][] = array("It's all",'close');	// скажем послать фрейм, прекращающий соединение. Клиент закрое сокет, потом этот сокет обработается как дефектный
 					}
-					else chkSocks($socket);	// просто закроем сокет
+					else {
+						//echo "Socket to client close by command from client             \n";
+						chkSocks($socket);	// просто закроем сокет
+					}
 				}
 				break;
 			case 'POLL':

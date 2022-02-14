@@ -23,6 +23,9 @@ So data from AIS stream and instruments such as echosounder and wind meter becom
 
 In addition, you may use ?WATCH={"enable":true,"json":true} stream, just like from original **gpsd**.   
 
+## Require
+mbstring enabled.
+
 ### Data source
 Normally, the gpspPROXY works with **gpsd** on the same or the other machine. In this case, the data is the most complete and reliable.
 

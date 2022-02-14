@@ -99,15 +99,17 @@ elseif($socket == $masterSock){ 	// умерло входящее подключ
 }
 else {
 	$n = array_search($socket,$sockets);	// 
-	echo "Close client socket #$n type ".gettype($socket)." by error or by life                    \n";
-	unset($sockets[$n]);
-	unset($messages[$n]);
+	echo "Close client socket #$n $socket type ".gettype($socket)." by error or by life                    \n";
+	if($n !== FALSE){
+		unset($sockets[$n]);
+		unset($messages[$n]);
+	}
 	$n = array_search($socket,$socksRead);	// 
-	unset($socksRead[$n]);
+	if($n !== FALSE) unset($socksRead[$n]);
 	$n = array_search($socket,$socksWrite);	// 
-	unset($socksWrite[$n]);
+	if($n !== FALSE) unset($socksWrite[$n]);
 	$n = array_search($socket,$socksError);	// 
-	unset($socksError[$n]);
+	if($n !== FALSE) phpunset($socksError[$n]);
 	@socket_close($socket); 	// он может быть уже закрыт
 }
 //echo "\nchkSocks sockets: "; print_r($sockets);
@@ -851,22 +853,23 @@ return $WATCH;
 
 function wsDecode($data){
 /* Возвращает:
-данные или false -- что-то пошло не так, непонятно, что делать
-тип данных или "", если данные в нескольких фреймах, и это не первый фрейм
-признак последнего фрейма (TRUE) или FALSE, если фрейм не последний
-один или несколько склееных фреймов, оставшихся после выделения первого
+$decodedData данные или null если фрейм принят не полностью и нечего декодировать, или 
+false -- что-то пошло не так, непонятно, что делать
+$type тип данных или null, если данные в нескольких фреймах, и это не первый фрейм
+$FIN признак последнего фрейма (TRUE) или FALSE, если фрейм не последний
+$tail один или несколько склееных фреймов, оставшихся после выделения первого
 */
-$unmaskedPayload = '';
-$decodedData = null;
+$decodedData = null; $tail = null; $FIN = null;
 
 // estimate frame type:
 $firstByteBinary = sprintf('%08b', ord($data[0])); 	// преобразование первого байта в битовую строку
 $secondByteBinary = sprintf('%08b', ord($data[1])); 	// преобразование второго байта в битовую строку
-$opcode = bindec(substr($firstByteBinary, 4, 4));	// последние четыре бита первого байта -- в десятичное число из текста
+$opcode = bindec(mb_substr($firstByteBinary, 4, 4,'8bit'));	// последние четыре бита первого байта -- в десятичное число из текста
 $payloadLength = ord($data[1]) & 127;	// берём как число последние семь бит второго байта
 
 $isMasked = $secondByteBinary[0] == '1';	// первый бит второго байта -- из текстового представления.
-$FIN = $firstByteBinary[0] == '1';
+if($firstByteBinary[0] == '1') $FIN = 'messageComplete';
+
 
 switch ($opcode) {
 case 1:	// text frame:
@@ -885,18 +888,18 @@ case 10:	// pong frame
 	$type = 'pong';
 	break;
 default:
-	$type = $opcode;
+	$type = null;
 }
 
 if ($payloadLength === 126) {
-	if (strlen($data) < 4) return false;
-	$mask = substr($data, 4, 4);
+	if (mb_strlen($data,'8bit') < 4) return false;
+	$mask = mb_substr($data, 4, 4,'8bit');
 	$payloadOffset = 8;
 	$dataLength = bindec(sprintf('%08b', ord($data[2])) . sprintf('%08b', ord($data[3]))) + $payloadOffset;
 } 
 elseif ($payloadLength === 127) {
-	if (strlen($data) < 10) return false;
-	$mask = substr($data, 10, 4);
+	if (mb_strlen($data,'8bit') < 10) return false;
+	$mask = mb_substr($data, 10, 4,'8bit');
 	$payloadOffset = 14;
 	$tmp = '';
 	for ($i = 0; $i < 8; $i++) {
@@ -906,7 +909,7 @@ elseif ($payloadLength === 127) {
 	unset($tmp);
 } 
 else {
-	$mask = substr($data, 2, 4);
+	$mask = mb_substr($data, 2, 4,'8bit');
 	$payloadOffset = 6;
 	$dataLength = $payloadLength + $payloadOffset;
 }
@@ -916,27 +919,30 @@ else {
  * so if websocket-frame is > 1024 bytes we have to wait until whole
  * data is transferd.
  */
-//echo "strlen(data)=".strlen($data)."; dataLength=$dataLength;\n";
-if (strlen($data) < $dataLength) {
-	echo "\nwsDecode: recievd ".strlen($data)." byte, but frame length $dataLength byte. Skip tail, frame bad.\n";
-	return false;	// надо продолжать читать и склеивать двоичное сообщение до $dataLength. Ломает...
+//echo "mb_strlen(data)=".mb_strlen($data,'8bit')."; dataLength=$dataLength;\n";
+if (mb_strlen($data,'8bit') < $dataLength) {
+	//echo "\nwsDecode: recievd ".mb_strlen($data,'8bit')." byte, but frame length $dataLength byte.\n";
+	$FIN = 'partFrame';
+	$tail = $data;
 }
 else {
-	$tail = substr($data,$dataLength);
-}
+	$tail = mb_substr($data,$dataLength,'8bit');
 
-if($isMasked) {
-	for ($i = $payloadOffset; $i < $dataLength; $i++) {
-		$j = $i - $payloadOffset;
-		if (isset($data[$i])) {
-			$unmaskedPayload .= $data[$i] ^ $mask[$j % 4];
+	if($isMasked) {
+		//echo "wsDecode: unmasking \n";
+		$unmaskedPayload = ''; 
+		for ($i = $payloadOffset; $i < $dataLength; $i++) {
+			$j = $i - $payloadOffset;
+			if (isset($data[$i])) {
+				$unmaskedPayload .= $data[$i] ^ $mask[$j % 4];
+			}
 		}
+		$decodedData = $unmaskedPayload;
+	} 
+	else {
+		$payloadOffset = $payloadOffset - 4;
+		$decodedData = mb_substr($data, $payloadOffset,'8bit');
 	}
-	$decodedData = $unmaskedPayload;
-} 
-else {
-	$payloadOffset = $payloadOffset - 4;
-	$decodedData = substr($data, $payloadOffset);
 }
 
 return array($decodedData,$type,$FIN,$tail);
@@ -948,7 +954,7 @@ function wsEncode($payload, $type = 'text', $masked = false){
 */
 if(!$type) $type = 'text';
 $frameHead = array();
-$payloadLength = strlen($payload);
+$payloadLength = mb_strlen($payload,'8bit');
 
 switch ($type) {
 case 'text':    // first byte indicates FIN, Text-Frame (10000001):
