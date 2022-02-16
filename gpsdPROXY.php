@@ -182,7 +182,8 @@ do {
 				$messages[$n]['protocol'] = 'WS';
 			}
 			
-			$msgLen = mb_strlen($msg,'8bit');
+			if(function_exists('mb_strlen')) $msgLen = mb_strlen($msg,'8bit');
+			else $msgLen = strlen($msg);
 			$res = socket_write($socket, $msg, $msgLen);
 			if($res === FALSE) { 	// клиент умер
 				echo "\n\nFailed to write data to socket by: " . socket_strerror(socket_last_error($sock)) . "\n";
