@@ -99,7 +99,7 @@ elseif($socket == $masterSock){ 	// умерло входящее подключ
 }
 else {
 	$n = array_search($socket,$sockets);	// 
-	echo "Close client socket #$n $socket type ".gettype($socket)." by error or by life                    \n";
+	//echo "Close client socket #$n $socket type ".gettype($socket)." by error or by life                    \n";
 	if($n !== FALSE){
 		unset($sockets[$n]);
 		unset($messages[$n]);
@@ -479,7 +479,6 @@ Array
 global $instrumentsData,$gpsdProxyTimeouts;
 $instrumentsDataUpdated = array(); // массив, где указано, какие классы изменениы и кем.
 $now = time();
-//print_r($inInstrumentsData);
 switch(@$inInstrumentsData['class']) {	// Notice if $inInstrumentsData empty
 case 'SKY':
 	break;
@@ -488,11 +487,6 @@ case 'TPV':
 	$dataTime = $now;
 	foreach($inInstrumentsData as $type => $value){ 	// обновим данные
 		$instrumentsData['TPV'][$inInstrumentsData['device']]['data'][$type] = $value; 	// php создаёт вложенную структуру, это не python
-		/*
-		if($type == 'speed'){
-			echo "Скорость=$value             \n";
-		}
-		*/
 		if($type == 'time') { // надеемся, что время прислали до содержательных данных
 			$dataTime = strtotime($value);
 			//echo "\nПрисланное время: |$value|$dataTime, восстановленное: |".date(DATE_ATOM,$dataTime)."|".strtotime(date(DATE_ATOM,$dataTime))." \n";
@@ -699,7 +693,7 @@ case 'MOB':
 }
 
 // Проверим актуальность всех данных
-//$instrumentsDataUpdated = array_merge($instrumentsDataUpdated,chkFreshOfData());	
+$instrumentsDataUpdated = array_merge($instrumentsDataUpdated,chkFreshOfData());	
 
 //echo "\n gpsdDataUpdated\n"; print_r($instrumentsDataUpdated);
 //echo "\n instrumentsData\n"; print_r($instrumentsData);
@@ -870,8 +864,7 @@ $decodedData = null; $tail = null; $FIN = null;
 // estimate frame type:
 $firstByteBinary = sprintf('%08b', ord($data[0])); 	// преобразование первого байта в битовую строку
 $secondByteBinary = sprintf('%08b', ord($data[1])); 	// преобразование второго байта в битовую строку
-if(function_exists('mb_substr')) $opcode = bindec(mb_substr($firstByteBinary, 4, 4,'8bit'));	// последние четыре бита первого байта -- в десятичное число из текста
-else $opcode = bindec(substr($firstByteBinary, 4, 4));	// последние четыре бита первого байта -- в десятичное число из текста
+$opcode = bindec(mb_substr($firstByteBinary, 4, 4,'8bit'));	// последние четыре бита первого байта -- в десятичное число из текста
 $payloadLength = ord($data[1]) & 127;	// берём как число последние семь бит второго байта
 
 $isMasked = $secondByteBinary[0] == '1';	// первый бит второго байта -- из текстового представления.
@@ -899,26 +892,14 @@ default:
 }
 
 if ($payloadLength === 126) {
-	if(function_exists('mb_strlen')){
-		if (mb_strlen($data,'8bit') < 4) return false;
-	}
-	else {
-		if (strlen($data) < 4) return false;
-	}
-	if(function_exists('mb_substr')) $mask = mb_substr($data, 4, 4,'8bit');
-	else $mask = substr($data, 4, 4);
+	if (mb_strlen($data,'8bit') < 4) return false;
+	$mask = mb_substr($data, 4, 4,'8bit');
 	$payloadOffset = 8;
 	$dataLength = bindec(sprintf('%08b', ord($data[2])) . sprintf('%08b', ord($data[3]))) + $payloadOffset;
 } 
 elseif ($payloadLength === 127) {
-	if(function_exists('mb_strlen')){
-		if (mb_strlen($data,'8bit') < 10) return false;
-	}
-	else {
-		if (strlen($data) < 10) return false;
-	}
-	if(function_exists('mb_substr')) $mask = mb_substr($data, 10, 4,'8bit');
-	else $mask = substr($data, 10, 4);
+	if (mb_strlen($data,'8bit') < 10) return false;
+	$mask = mb_substr($data, 10, 4,'8bit');
 	$payloadOffset = 14;
 	$tmp = '';
 	for ($i = 0; $i < 8; $i++) {
@@ -928,8 +909,7 @@ elseif ($payloadLength === 127) {
 	unset($tmp);
 } 
 else {
-	if(function_exists('mb_substr')) $mask = mb_substr($data, 2, 4,'8bit');
-	else $mask = substr($data, 2, 4);
+	$mask = mb_substr($data, 2, 4,'8bit');
 	$payloadOffset = 6;
 	$dataLength = $payloadLength + $payloadOffset;
 }
@@ -940,16 +920,13 @@ else {
  * data is transferd.
  */
 //echo "mb_strlen(data)=".mb_strlen($data,'8bit')."; dataLength=$dataLength;\n";
-if(function_exists('mb_strlen')) $inDataLen = mb_strlen($data,'8bit');
-else $inDataLen = strlen($data);
-if ($inDataLen < $dataLength) {
-	echo "\nwsDecode: recievd $inDataLen byte, but frame length $dataLength byte.\n";
+if (mb_strlen($data,'8bit') < $dataLength) {
+	//echo "\nwsDecode: recievd ".mb_strlen($data,'8bit')." byte, but frame length $dataLength byte.\n";
 	$FIN = 'partFrame';
 	$tail = $data;
 }
 else {
-	if(function_exists('mb_substr')) $tail = mb_substr($data,$dataLength,'8bit');
-	else $tail = substr($data,$dataLength);
+	$tail = mb_substr($data,$dataLength,'8bit');
 
 	if($isMasked) {
 		//echo "wsDecode: unmasking \n";
@@ -964,8 +941,7 @@ else {
 	} 
 	else {
 		$payloadOffset = $payloadOffset - 4;
-		if(function_exists('mb_substr')) $decodedData = mb_substr($data, $payloadOffset,'8bit');
-		else $decodedData = substr($data, $payloadOffset);
+		$decodedData = mb_substr($data, $payloadOffset,'8bit');
 	}
 }
 
@@ -978,8 +954,7 @@ function wsEncode($payload, $type = 'text', $masked = false){
 */
 if(!$type) $type = 'text';
 $frameHead = array();
-if(function_exists('mb_strlen')) $payloadLength = mb_strlen($payload,'8bit');
-else $payloadLength = strlen($payload);
+$payloadLength = mb_strlen($payload,'8bit');
 
 switch ($type) {
 case 'text':    // first byte indicates FIN, Text-Frame (10000001):

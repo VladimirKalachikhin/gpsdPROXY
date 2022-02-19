@@ -23,7 +23,7 @@ $ cgps localhost:3838
 $ telnet localhost 3838
 */
 /*
-Version 0.5.2
+Version 0.5.3
 
 0.5.1	add Signal K data source
 0.5.0	rewritten to module structure and add VenusOS data source. Used https://github.com/bluerhinos/phpMQTT with big changes.
@@ -182,8 +182,7 @@ do {
 				$messages[$n]['protocol'] = 'WS';
 			}
 			
-			if(function_exists('mb_strlen')) $msgLen = mb_strlen($msg,'8bit');
-			else $msgLen = strlen($msg);
+			$msgLen = mb_strlen($msg,'8bit');
 			$res = socket_write($socket, $msg, $msgLen);
 			if($res === FALSE) { 	// клиент умер
 				echo "\n\nFailed to write data to socket by: " . socket_strerror(socket_last_error($sock)) . "\n";
@@ -245,7 +244,7 @@ do {
 			//case 104:	// Connection reset by peer		если клиент сразу закроет сокет, в который он что-то записал, то ещё не переданная часть записанного будет отброшена. Поэтому клиент не закрывает сокет вообще, и он закрывается системой с этим сообщением. Но на этой стороне к моменту получения ошибки уже всё считано?
 			//	break;
 			default:
-				echo "Failed to read data from socket $sockKey by: " . socket_strerror(socket_last_error($socket)) . "                                 \n"; 	// в общем-то -- обычное дело. Клиент закрывает соединение, мы об этом узнаём при попытке чтения. Если $sockKey == false, то это сокет к gpsd.
+				echo "Failed to read data from socket #$sockKey $socket by: " . socket_strerror(socket_last_error($socket)) . "                                 \n"; 	// в общем-то -- обычное дело. Клиент закрывает соединение, мы об этом узнаём при попытке чтения. Если $sockKey == false, то это сокет к gpsd.
 				chkSocks($socket);
 			}
 		    continue;	// к следующему сокету
@@ -404,6 +403,8 @@ do {
 				//echo "Принято от websocket'а:"; print_r($buf);
 				if(!$buf) continue 2;	// к следующему сокету
 				break;	// case protocol WS
+			default:
+				//echo "Какой-то другой протокол.          \n";
 			} // end switch protocol
 		}
 		else{ 	// с этим сокетом ещё не беседовали, значит, пришёл заголовок или команда gpsd или ничего, если сокет просто открыли
@@ -448,13 +449,14 @@ do {
 
 		// выделим команду и параметры
 		if(!is_array($buf))	$buf = explode(';',$buf); 	// 
+		//print_r($buf);
 		foreach($buf as $command){
 			if(!$command) continue;
 			if($command[0]!='?') continue; 	// это не команда протокола gpsd
 			$command = rtrim(substr($command,1),';');	// ? ;
 			list($command,$params) = explode('=',$command);
 			$params = trim($params);
-			//echo "\nClient $sockKey| command=$command; params=$params;\n";
+			//echo "\nClient #$sockKey $socket command=$command; params=$params;\n";
 			if($params) $params = json_decode($params,TRUE);
 			// Обработаем команду
 			switch($command){
@@ -511,17 +513,17 @@ do {
 				unset($POLL);
 				break;
 			case 'CONNECT':	// подключение к другому источнику данных. Используется, например, в netAISclient
-				//echo "\nrecieved CONNECT !\n";
+				//echo "\nrecieved CONNECT! #$sockKey $socket    \n";
 				if(@$params['host'] and @$params['port']) { 	// указано подключиться туда
 					// Видимо, разрешать переподключаться за пределы локальной сети как-то неправильно...
 				}
 				else { 	// данные будут из этого сокета
 					//echo "\nby CONNECT, begin handshaking\n";
-					$newDevices = dataSourceConnect($socket);
+					$newDevices = dataSourceConnect($socket);	// все будут ждать, пока тут всё поделючится
 					if(!$newDevices) break;
 					$messages[$sockKey]['PUT'] = TRUE; 	//
 					$devicePresent = array_unique(array_merge($devicePresent,$newDevices));
-					//echo "\nCONNECT !\n";
+					//echo "\nCONNECT!\n";
 				}
 				break;
 			case 'UPDATE':

@@ -59,19 +59,21 @@ $controlClasses = array('VERSION','DEVICES','DEVICE','WATCH');
 $WATCHsend = FALSE;
 $dataType = $SEEN_GPS | $SEEN_AIS; 	// данные от каких приборов будем принимать от gpsd
 //echo "dataType=$dataType;\n";
-//echo "\nBegin handshaking with gpsd\n";
+//echo "\nBegin handshaking with gpsd to socket $gpsdSock\n";
 do { 	// при каскадном соединении нескольких gpsd заголовков может быть много
-	$buf = @socket_read($gpsdSock, 2048, PHP_NORMAL_READ); 	// читаем
-	//echo "\nbuf:$buf|\n";
-	if($buf === FALSE) { 	// gpsd умер
-		//echo "\nFailed to read data from gpsd: " . socket_strerror(socket_last_error()) . "\n";
-		chkSocks($gpsdSock);
-		//exit();
-		return FALSE;
-	}
-	if (!$buf = trim($buf)) {
-		continue;
-	}
+	$zeroCount = 0;	// счётчик пустых строк
+	do {	// крутиться до принятия строки или до 10 пустых строк
+		$buf = @socket_read($gpsdSock, 2048, PHP_NORMAL_READ); 	// читаем
+		//echo "\nbuf:$buf| \n$zeroCount\n";
+		if($buf === FALSE) { 	// gpsd умер
+			//echo "\nFailed to read data from gpsd: " . socket_strerror(socket_last_error()) . "\n";
+			chkSocks($gpsdSock);
+			return FALSE;
+		}
+		$buf = trim($buf);
+		if(!$buf) $zeroCount++;
+	}while(!$buf and $zeroCount<10);
+	if(!$buf) break;	// не склалось, облом
 	$buf = json_decode($buf,TRUE);
 	//echo "buf: "; print_r($buf);
 	switch($buf['class']){
@@ -89,7 +91,6 @@ do { 	// при каскадном соединении нескольких gps
 			if($res === FALSE) { 	// gpsd умер
 				chkSocks($gpsdSock);
 				echo "\nFailed to send WATCH to gpsd: " . socket_strerror(socket_last_error()) . "\n";
-				//exit();
 				return FALSE;
 			}
 			$WATCHsend = TRUE;
@@ -97,7 +98,7 @@ do { 	// при каскадном соединении нескольких gps
 		}
 		break;
 	case 'DEVICES': 	// соберём подключенные устройства со всех gpsd, включая slave
-		//echo "\nReceived DEVICES\n"; //
+		//echo "Received DEVICES\n"; //
 		$devicePresent = array();
 		foreach($buf["devices"] as $device) {
 			//echo "\nChecked device with dataType $dataType:".($device['flags']&$dataType)."\n";
@@ -108,15 +109,14 @@ do { 	// при каскадном соединении нескольких gps
 		//echo "Received about slave DEVICE<br>\n"; //
 		break;
 	case 'WATCH': 	// 
-		//echo "Received WATCH\n"; //
+		//echo "Received WATCH\n\n"; //
 		break 2; 	// приветствие завершилось
 	}
 	
-}while($WATCHsend or in_array($buf['class'],$controlClasses));
+}while($WATCHsend or @in_array($buf['class'],$controlClasses));
 //echo "buf: "; print_r($buf);
 if(!$devicePresent) {
 	echo "\nno required devices present\n";
-	//exit();
 	return FALSE;
 }
 $devicePresent = array_unique($devicePresent);
