@@ -479,6 +479,7 @@ Array
 global $instrumentsData,$gpsdProxyTimeouts;
 $instrumentsDataUpdated = array(); // массив, где указано, какие классы изменениы и кем.
 $now = time();
+//echo "\ninInstrumentsData="; print_r($inInstrumentsData);echo"\n";
 switch(@$inInstrumentsData['class']) {	// Notice if $inInstrumentsData empty
 case 'SKY':
 	break;
@@ -520,7 +521,7 @@ case 'netAIS':
 	}
 	break;
 case 'AIS':
-	//echo "JSON AIS Data:\n"; print_r($inInstrumentsData); echo "\n";
+	echo "JSON AIS Data: "; print_r($inInstrumentsData); echo "\n";
 	$vehicle = trim((string)$inInstrumentsData['mmsi']);	//
 	$instrumentsData['AIS'][$vehicle]['data']['mmsi'] = $vehicle;
 	if($inInstrumentsData['netAIS']) $instrumentsData['AIS'][$vehicle]['netAIS'] = TRUE; 	// 
@@ -688,7 +689,7 @@ case 'MOB':
 	$instrumentsData['MOB']['status'] = $inInstrumentsData['status'];
 	$instrumentsData['MOB']['points'] = $inInstrumentsData['points'];
 	$instrumentsDataUpdated['MOB'] = $sockKey;
-	//print_r($instrumentsData['MOB']);
+	//echo "MOB: "; print_r($instrumentsData['MOB']);
 	break;
 }
 

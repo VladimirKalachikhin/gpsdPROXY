@@ -23,7 +23,7 @@ $ cgps localhost:3838
 $ telnet localhost 3838
 */
 /*
-Version 0.5.3
+Version 0.5.4
 
 0.5.1	add Signal K data source
 0.5.0	rewritten to module structure and add VenusOS data source. Used https://github.com/bluerhinos/phpMQTT with big changes.
@@ -171,7 +171,7 @@ do {
 	foreach($socksWrite as $socket){
 		$n = array_search($socket,$sockets);	// 
 		foreach($messages[$n]['output'] as &$msg) { 	// все накопленные сообщения. & для экономии памяти, но что-то не экономится...
-			//echo "to $n:\n|$msg|\n";
+			//echo "\nto $n:\n|$msg|\n";
 			$msgParams = null;
 			if(is_array($msg)) list($msg,$msgParams) = $msg;	// второй элемент -- тип фрейма
 			switch($messages[$n]['protocol']){
@@ -401,6 +401,7 @@ do {
 
 				$buf = $messages[$sockKey]['inBufS'];
 				//echo "Принято от websocket'а:"; print_r($buf);
+				$messages[$sockKey]['inBufS'] = array();	// очистим буфер сообщений
 				if(!$buf) continue 2;	// к следующему сокету
 				break;	// case protocol WS
 			default:
@@ -456,7 +457,7 @@ do {
 			$command = rtrim(substr($command,1),';');	// ? ;
 			list($command,$params) = explode('=',$command);
 			$params = trim($params);
-			//echo "\nClient #$sockKey $socket command=$command; params=$params;\n";
+			//echo "\n\nRecieved command from Client #$sockKey $socket command=$command; params=$params;\n";
 			if($params) $params = json_decode($params,TRUE);
 			// Обработаем команду
 			switch($command){
@@ -527,10 +528,9 @@ do {
 				}
 				break;
 			case 'UPDATE':
-				//echo "\n UPDATE |$sockKey|\n"; print_r($params);
-				foreach($params['updates'] as $update){
-					updAndPrepare($update,$sockKey); // обновим кеш и отправим данные для режима WATCH
-				}
+				//echo "\n UPDATE #$sockKey $socket \n"; 
+				//print_r($params); echo "\n";
+				updAndPrepare($params['updates'],$sockKey); // обновим кеш и отправим данные для режима WATCH
 				break;
 			}
 		}
