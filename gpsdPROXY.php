@@ -23,7 +23,7 @@ $ cgps localhost:3838
 $ telnet localhost 3838
 */
 /*
-Version 0.5.4
+Version 0.5.5
 
 0.5.1	add Signal K data source
 0.5.0	rewritten to module structure and add VenusOS data source. Used https://github.com/bluerhinos/phpMQTT with big changes.
@@ -81,7 +81,10 @@ else {	//
 }
 //echo "Source $requireFile on $dataSourceHost:$dataSourcePort\n";
 $sockets = array(); 	// список функционирующих сокетов
-$dataSourceConnectionObject = NULL; 	// Сокет к источнику данных, может не быть, как оно в VenusOS. Определяется в require
+// Сокет к источнику данных, может не быть, как оно в VenusOS. Определяется в require.
+// Предполагается, что из этого сокета только читается непрерывный поток цельных сообщений, ибо оно gpsd.
+// Handshaking осуществляется где-то отдельно, не в основном цикле обслуживания сокетов.
+$dataSourceConnectionObject = NULL; 	
 require($requireFile);	// загрузим то что нужно для работы с указанным или найденным источником данных
 $masterSock = createSocketServer($gpsdProxyHost,$gpsdProxyPort,20); 	// Соединение для приёма клиентов, входное соединение
 //echo "masterSock=$masterSock; dataSourceConnectionObject=$dataSourceConnectionObject;\n";
@@ -147,8 +150,10 @@ do {
 	if($pollWatchExist) $SocketTimeout = $minSocketTimeout;	// в принципе, $SocketTimeout можно назначать вместе с $pollWatchExist?
 	else $SocketTimeout = 30;	// при тишине раз в  провернём цикл на предмет очистки от умерших сокетов
 	if(function_exists('altReadData')){
-		// Возьмём откуда-то данные каким-то левым способом. Применяется для venusos
-		if( altReadData($dataSourceConnectionObject) ) $SocketTimeout = 0;	// если данные были получены слева, из надо обработать, поэтому отключим ожидание чтения сокета
+		// Возьмём откуда-то данные каким-то левым способом. 
+		// Жуткий костыль для venusos, потому что переделывать библиотеку работы с MQTT, написаную в мудацком объектном стиле, нет никакого желания
+		// в altReadData вызывается updAndPrepare, так что больше с этим ничего не надо делать 
+		if( altReadData($dataSourceConnectionObject) ) $SocketTimeout = 0;	// если данные были получены слева, их надо обработать, поэтому отключим ожидание чтения сокета
 	}
 	//echo "pollWatchExist=$pollWatchExist; minSocketTimeout=$minSocketTimeout; SocketTimeout=$SocketTimeout;        \n";
 
@@ -208,7 +213,7 @@ do {
 		continue;
 	}
 	foreach($socksRead as $socket){
-		//if($socket == $dataSourceConnectionObject) echo "Read: $dataSourceHumanName socket\n";
+		socket_clear_error($socket);
 		if($socket == $masterSock) { 	// новое подключение
 			$sock = socket_accept($socket); 	// новый сокет для подключившегося клиента
 			if(!$sock or (get_resource_type($sock) != 'Socket')) {
@@ -223,19 +228,64 @@ do {
 			//echo "New client connected: $sock with key $sockKey                                                      \n";
 		    continue; 	//  к следующему сокету
 		}
-		// Читаем сокет
+		elseif($socket === $dataSourceConnectionObject){ 	// соединение с главным источником данных
+			// при этом, если есть altReadData (venusos, ага) -- всё то же самое происходит перед socket_select
+			// и могут быть клиенты, передающие данные потоко: $messages[$sockKey]['PUT'] == TRUE
+			// которые образовались по команде CONNECT. Для них то же самое ниже.
+			// Ещё updAndPrepare вызывается по приходу команды UPDATE для аргументов этой команды.
+			$buf = @socket_read($socket, 2048, PHP_NORMAL_READ); 	// читаем построчно, gpsd передаёт сообщение целиком в одной строке
+			if($err = socket_last_error($socket)) { 	// с сокетом проблемы
+				switch($err){
+				case 114:	// Operation already in progress
+				case 115:	// Operation now in progress
+				//case 104:	// Connection reset by peer		если клиент сразу закроет сокет, в который он что-то записал, то ещё не переданная часть записанного будет отброшена. Поэтому клиент не закрывает сокет вообще, и он закрывается системой с этим сообщением. Но на этой стороне к моменту получения ошибки уже всё считано?
+				//	break;
+				default:
+					echo "Failed to read data from gpsd socket $socket by: " . socket_strerror(socket_last_error($socket)) . "                                 \n"; 	// в общем-то -- обычное дело. Клиент закрывает соединение, мы об этом узнаём при попытке чтения. Если $sockKey == false, то это сокет к gpsd.
+					chkSocks($socket);
+				}
+				continue;	// к следующему сокету
+			}
+			$buf = trim($buf);
+			if($buf) $dataSourceZeroCNT = 0;
+			else {
+				$dataSourceZeroCNT++;
+				if($dataSourceZeroCNT>10){
+					echo "\nTo many empty strings from $dataSourceHumanName socket       \n"; 	// бывает, источник данных умер, а сокет -- нет. Тогда из него читается пусто.
+					chkSocks($socket);
+				}
+				continue;	// к следующему сокету
+			}
+			//echo "\nbuf from gpsd=|$buf|\n";		
+			$inInstrumentsData = instrumentsDataDecode($buf);	// одно сообщение конкретного класса из потока
+			// А оно надо? Здесь игнорируются устройства, не представленные на этапе установления соединения 
+			// в ответ на WATCH. А вновь подключенные?
+			//if(!in_array($inInstrumentsData['device'],$devicePresent)) {  	// это не то устройство, которое потребовали
+			//	continue;
+			//}
+			//echo "\n inInstrumentsData\n"; print_r($inInstrumentsData);
+			// Ok, мы получили требуемое
+			updAndPrepare($inInstrumentsData); // обновим кеш и отправим данные для режима WATCH
+			//echo "\n gpsdData\n"; print_r($instrumentsData);
+			continue; 	// к следующему сокету
+		}
+		
+		// Читаем клиентские сокеты
 		$sockKey = @array_search($socket,$sockets); 	// 
-		socket_clear_error($socket);
+		//echo "socket #$sockKey $socket"; print_r($messages[$sockKey]);
+		
 		if($messages[$sockKey]['protocol']=='WS'){ 	// с этим сокетом уже общаемся по протоколу websocket
 			$buf = @socket_read($socket, 1048576,  PHP_BINARY_READ); 	// читаем до 1MB
 		}
 		else {
 			$buf = @socket_read($socket, 2048, PHP_NORMAL_READ); 	// читаем построчно
-			// строки могут разделяться как \n, так и \r\n, но при PHP_NORMAL_READ reading stops at \n or \r, соотвественно, сперва строка заканчивается на \r, а после следующего чтения - на \r\n, и только тогда можно заменить
+			// строки могут разделяться как \n, так и \r\n, но при PHP_NORMAL_READ reading stops at \n or \r,
+			// соотвественно, сперва строка заканчивается на \r, а после следующего чтения - на \r\n,
+			// и только тогда можно заменить. В результате строки составного сообщения (заголовки, например)
+			// всегда кончаются только \n
 			if($buf[-1]=="\n") $buf = trim($buf)."\n";
 			else $buf = trim($buf);
 		}
-		//echo "\nbuf has type ".gettype($buf)." and=|$buf|\nwith error ".socket_last_error($socket)."\n";		
 		if($err = socket_last_error($socket)) { 	// с сокетом проблемы
 			//echo "\nbuf has type ".gettype($buf)." and=|$buf|\nwith error ".socket_last_error($socket)."\n";		
 			switch($err){
@@ -252,38 +302,8 @@ do {
 		$lastClientExchange = time();
 		
 		// Собственно, содержательная часть
-		//echo "\nПринято из сокета № $sockKey $socket:$buf|\n"; 	// здесь что-то прочитали из какого-то сокета
-		if(($socket == $dataSourceConnectionObject) or (@$messages[$sockKey]['PUT'] == TRUE)){ 	// прочитали из соединения с источником данных
-			if($buf) $dataSourceZeroCNT = 0;
-			else {
-				$dataSourceZeroCNT++;
-				if($dataSourceZeroCNT>10){
-					echo "\nTo many empty strings from $dataSourceHumanName socket       \n"; 	// бывает, источник данных умер, а сокет -- нет. Тогда из него читается пусто.
-					chkSocks($socket);
-				}
-				continue;	// к следующему сокету
-			}
-			//echo "\nbuf has type ".gettype($buf)." and=|$buf|\nwith error ".socket_last_error($socket)."\n";		
-			$inInstrumentsData = instrumentsDataDecode($buf);	// одно сообщение конкретного класса из потока
-			// А оно надо? Здесь игнорируются устройства, не представленные на этапе установления соединения 
-			// в ответ на WATCH. А вновь подключенные?
-			/*
-			if(!in_array($inInstrumentsData['device'],$devicePresent)) {  	// это не то устройство, которое потребовали
-				continue;
-			}
-			*/
-			//echo "\n inInstrumentsData\n"; print_r($inInstrumentsData);
-			// Ok, мы получили требуемое
-			//if($messages[$sockKey]['PUT'] == TRUE) {
-			//	echo "\n Другой источник данных:	\n"; print_r($inInstrumentsData);
-			//}
-			updAndPrepare($inInstrumentsData); // обновим кеш и отправим данные для режима WATCH
-			//echo "\n gpsdData\n"; print_r($instrumentsData);
-			continue; 	// к следующему сокету
-		}
-
 		// прочитали из клиентского соединения
-		if($buf) $messages[$sockKey]['zerocnt'] = 0;
+		if($buf) $messages[$sockKey]['zerocnt'] = 0;	// \n может быть частью составного сообщения, поэтому без trim
 		else $messages[$sockKey]['zerocnt']++;
 		if($messages[$sockKey]['zerocnt']>10){
 			echo "\n\nTo many empty strings from client socket #$sockKey $socket \n"; 	// бывает, клиент умер, а сокет -- нет. Тогда из него читается пусто.
@@ -292,6 +312,13 @@ do {
 		}
 		//echo "\nПРИНЯТО ОТ КЛИЕНТА # $sockKey $socket ".mb_strlen($buf,'8bit')." байт\n";
 		//print_r($messages[$sockKey]);
+		if(@$messages[$sockKey]['PUT'] == TRUE){ 	// прочитали из соединения с источником данных
+			$inInstrumentsData = instrumentsDataDecode($buf);	// одно сообщение конкретного класса из потока
+			//echo "\n inInstrumentsData from other \n"; print_r($inInstrumentsData);
+			updAndPrepare($inInstrumentsData); // обновим кеш и отправим данные для режима WATCH
+			//echo "\n gpsdData\n"; print_r($instrumentsData);
+			continue; 	// к следующему сокету
+		}
 		if($messages[$sockKey]['greeting']===TRUE){ 	// с этим сокетом уже беседуем, значит -- пришли данные	
 			switch($messages[$sockKey]['protocol']){
 			case 'WS':	// ответ за запрос через websocket, здесь нет конца передачи, посылается сколько-то фреймов.

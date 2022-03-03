@@ -37,7 +37,10 @@ Array
     [eph] => 0
 )
 */
-return array(json_decode($buf,TRUE));
+$buf = explode("\n",$buf);
+array_walk($buf,function (&$oneBuf){$oneBuf=json_decode($oneBuf,TRUE);});
+//echo "gpsd instrumentsDataDecode "; print_r($buf); echo "\n";
+return $buf;
 } // end function instrumentsDataDecode
 
 //function altReadData($dataSourceConnectionObject){
