@@ -23,7 +23,7 @@ $ cgps localhost:3838
 $ telnet localhost 3838
 */
 /*
-Version 0.5.5
+Version 0.5.6
 
 0.5.1	add Signal K data source
 0.5.0	rewritten to module structure and add VenusOS data source. Used https://github.com/bluerhinos/phpMQTT with big changes.
@@ -540,14 +540,15 @@ do {
 				$messages[$sockKey]['output'][] = json_encode($POLL)."\r\n\r\n"; 	// будем копить сообщения, вдруг клиент не готов их принять
 				unset($POLL);
 				break;
-			case 'CONNECT':	// подключение к другому источнику данных. Используется, например, в netAISclient
-				//echo "\nrecieved CONNECT! #$sockKey $socket    \n";
+			case 'CONNECT':	// подключиться к этому сокету как к gpsd. Используется, например, в netAISclient
+				echo "\nrecieved CONNECT! #$sockKey $socket    \n";
 				if(@$params['host'] and @$params['port']) { 	// указано подключиться туда
 					// Видимо, разрешать переподключаться за пределы локальной сети как-то неправильно...
 				}
 				else { 	// данные будут из этого сокета
 					//echo "\nby CONNECT, begin handshaking\n";
-					$newDevices = dataSourceConnect($socket);	// все будут ждать, пока тут всё поделючится
+					//$newDevices = dataSourceConnect($socket);	// все будут ждать, пока тут всё подключится
+					$newDevices = connectToGPSD($socket);	// все будут ждать, пока тут всё подключится
 					if(!$newDevices) break;
 					$messages[$sockKey]['PUT'] = TRUE; 	//
 					$devicePresent = array_unique(array_merge($devicePresent,$newDevices));

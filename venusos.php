@@ -40,7 +40,13 @@ Array
     [eph] => 0
 )
 */
-return null; 	// в данном случае такой функции нет, аналогичная по смыслу функция venusosDataDecode, которая вызывается как collback
+if(strpos($buf,'class')){	//	там данные от gpsd-like клиента, подключившегося сервером по команде CONNECT
+	$buf = explode("\n",$buf);
+	array_walk($buf,function (&$oneBuf){$oneBuf=json_decode($oneBuf,TRUE);});
+	//echo "gpsd instrumentsDataDecode "; print_r($buf); echo "\n";
+	return $buf;
+}
+else return null; 	// в данном случае такой функции нет, аналогичная по смыслу функция venusosDataDecode, которая вызывается как collback
 } // end function instrumentsDataDecode
 
 function altReadData(&$mqtt){

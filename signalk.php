@@ -5,7 +5,7 @@ $dataSourceHumanName = 'SignalK';	//
 
 // Укажите требуемое, исходя из https://signalk.org/specification/1.5.0/doc/vesselsBranch.html
 // Specify the required, based on https://signalk.org/specification/1.5.0/doc/vesselsBranch.html
-$signaKnames = array(
+$signalKnames = array(
 'track' => 'courseOverGroundTrue',		// headingTrue
 'speed' => 'speedOverGround',			// speedThroughWater speedThroughWaterLongitudinal 
 'depth' => 'belowTransducer',			// belowKeel belowSurface
@@ -17,19 +17,26 @@ $dataSourceConnectionObject = createSocketClient($dataSourceHost,$dataSourcePort
 
 function dataSourceConnect($dataSock){
 /* Return array(deviceID) of devices that return data or FALSE */
-global $signaKnames;
+global $signalKnames;
 
 $buf = @socket_read($dataSock, 2048, PHP_NORMAL_READ); 	// читаем, но сокета может не быть
 //echo "$buf\n";
 $buf = json_decode($buf, true);
 //echo "Decoded buffer: "; print_r($buf);
 $self = $buf['self'];
+//echo "self=$self;\n";
 unset($buf);
 if(!$self) return FALSE;
 
 $signalKsubscribe = '{
 	"context": "vessels.*",
 	"subscribe": [
+		{
+			"path": "",
+			"format": "delta",
+			"policy": "instant",
+			"minPeriod": 0
+		},
 		{
 			"path": "mmsi",
 			"format": "delta",
@@ -55,77 +62,11 @@ $signalKsubscribe = '{
 			"minPeriod": 0
 		},
 		{
-			"path": "communication.callsignVhf",
+			"path": "communication.netAIS",
 			"format": "delta",
 			"policy": "instant",
 			"minPeriod": 0
 		},
-		{
-			"path": "navigation.courseOverGroundTrue",
-			"format": "delta",
-			"policy": "instant",
-			"minPeriod": 0
-		},
-		{
-			"path": "navigation.headingTrue",
-			"format": "delta",
-			"policy": "instant",
-			"minPeriod": 0
-		},
-		{
-			"path": "navigation.destination.commonName",
-			"format": "delta",
-			"policy": "instant",
-			"minPeriod": 0
-		},
-		{
-			"path": "navigation.position",
-			"format": "delta",
-			"policy": "instant",
-			"minPeriod": 0
-		},
-		{
-			"path": "navigation.'.$signaKnames['magtrack'].'",
-			"format": "delta",
-			"policy": "instant",
-			"minPeriod": 0
-		},
-		{
-			"path": "navigation.'.$signaKnames['magvar'].'",
-			"format": "delta",
-			"policy": "instant",
-			"minPeriod": 0
-		},
-		{
-			"path": "navigation.maneuver",
-			"format": "delta",
-			"policy": "instant",
-			"minPeriod": 0
-		},
-		{
-			"path": "navigation.rateOfTurn",
-			"format": "delta",
-			"policy": "instant",
-			"minPeriod": 0
-		},
-		{
-			"path": "navigation.speedOverGround",
-			"format": "delta",
-			"policy": "instant",
-			"minPeriod": 0
-		},
-';		
-if($signaKnames['track'] != 'speedOverGround')	{
-	$signalKsubscribe .= '
-		{
-			"path": "navigation.'.$signaKnames['speed'].'",
-			"format": "delta",
-			"policy": "instant",
-			"minPeriod": 0
-		},
-	';
-}
-$signalKsubscribe .= '
 		{
 			"path": "design.aisShipType",
 			"format": "delta",
@@ -151,6 +92,84 @@ $signalKsubscribe .= '
 			"minPeriod": 0
 		},
 		{
+			"path": "navigation.position",
+			"format": "delta",
+			"policy": "instant",
+			"minPeriod": 0
+		},
+		{
+			"path": "navigation.state",
+			"format": "delta",
+			"policy": "instant",
+			"minPeriod": 0
+		},
+		{
+			"path": "navigation.courseOverGroundTrue",
+			"format": "delta",
+			"policy": "instant",
+			"minPeriod": 0
+		},
+		{
+			"path": "navigation.headingTrue",
+			"format": "delta",
+			"policy": "instant",
+			"minPeriod": 0
+		},
+		{
+			"path": "navigation.speedOverGround",
+			"format": "delta",
+			"policy": "instant",
+			"minPeriod": 0
+		},
+		{
+			"path": "navigation.destination.commonName",
+			"format": "delta",
+			"policy": "instant",
+			"minPeriod": 0
+		},
+		{
+			"path": "navigation.destination.eta",
+			"format": "delta",
+			"policy": "instant",
+			"minPeriod": 0
+		},
+		{
+			"path": "navigation.'.$signalKnames['magtrack'].'",
+			"format": "delta",
+			"policy": "instant",
+			"minPeriod": 0
+		},
+		{
+			"path": "navigation.'.$signalKnames['magvar'].'",
+			"format": "delta",
+			"policy": "instant",
+			"minPeriod": 0
+		},
+		{
+			"path": "navigation.maneuver",
+			"format": "delta",
+			"policy": "instant",
+			"minPeriod": 0
+		},
+		{
+			"path": "navigation.rateOfTurn",
+			"format": "delta",
+			"policy": "instant",
+			"minPeriod": 0
+		},
+';		
+if($signalKnames['track'] != 'speedOverGround')	{
+	$signalKsubscribe .= '
+		{
+			"path": "navigation.'.$signalKnames['speed'].'",
+			"format": "delta",
+			"policy": "instant",
+			"minPeriod": 0
+		},
+	';
+}
+$signalKsubscribe .= '
+		{
 			"path": "sensors.ais.fromBow",
 			"format": "delta",
 			"policy": "instant",
@@ -163,7 +182,13 @@ $signalKsubscribe .= '
 			"minPeriod": 0
 		},
 		{
-			"path": "environment.depth.'.$signaKnames['depth'].'",
+			"path": "environment.depth.'.$signalKnames['depth'].'",
+			"format": "delta",
+			"policy": "instant",
+			"minPeriod": 0
+		},
+		{
+			"path": "navigation.datetime",
 			"format": "delta",
 			"policy": "instant",
 			"minPeriod": 0
@@ -171,7 +196,7 @@ $signalKsubscribe .= '
 	]
 }';
 $signalKsubscribe = json_decode($signalKsubscribe, true);
-//echo "signalKsubscribe: "; print_r($signalKsubscribe);
+//echo "signalKsubscribe: "; print_r($signalKsubscribe); echo "\n";
 $signalKsubscribe = json_encode($signalKsubscribe)."\r\n";
 $res = socket_write($dataSock, $signalKsubscribe, strlen($signalKsubscribe));	// Подпишемся
 
@@ -208,15 +233,22 @@ Array
     [eph] => 0
 )
 */
-global $signaKnames,$devicePresent;
-$self = $devicePresent[0];	// а тут нет других девайсов, так что через этот массив передаём контекст self
+global $signalKnames,$devicePresent;
 $WATCH = array();
 
 $buf = json_decode($buf,TRUE);
 if(!$buf) return $WATCH;	// там могли быть строки из пробелов, \n, и прочее
+elseif($buf['class']){
+	$WATCH[]=$buf;	//	там данные от gpsd-like клиента, подключившегося сервером по команде CONNECT
+	//echo "buf from CONNECT client"; print_r($WATCH);
+	return $WATCH;
+}
+
 //print_r($buf);
 // Перепакуем данные
-if($buf['context'] == $self){	// сведения про себя
+$self = $devicePresent[0];	// а тут нет других девайсов, так что через этот массив передаём контекст self
+//echo "self=$self; buf['context']={$buf['context']};\n";
+if($buf['context'] == $self){	//echo "Сведения о себе               \n";
 	foreach($buf['updates'] as $upd){
 		$tpv = array('class'=>'TPV');	// TPV в смысле gpsd -- это ответ от одного устройства. Здесь, вроде, каждый элемент массива updates и есть ответ от одного устройства
 		if($upd['source'])	$tpv['device'] = $upd['source']['label'];
@@ -228,19 +260,19 @@ if($buf['context'] == $self){	// сведения про себя
 				$tpv['lat'] = $sample['value']['latitude'];
 				$tpv['lon'] = $sample['value']['longitude'];		
 				break;
-			case ('navigation.'.$signaKnames['track']):
+			case ('navigation.'.$signalKnames['track']):
 				$tpv['track'] = ($sample['value']*180)/M_PI;	// Units: rad (Radian)
 				break;
-			case ('navigation.'.$signaKnames['speed']):
+			case ('navigation.'.$signalKnames['speed']):
 				$tpv['speed'] = $sample['value'];
 				break;
-			case ('environment.depth.'.$signaKnames['depth']):
+			case ('environment.depth.'.$signalKnames['depth']):
 				$tpv['depth'] = $sample['value'];
 				break;
-			case ('navigation.'.$signaKnames['magtrack']):
+			case ('navigation.'.$signalKnames['magtrack']):
 				$tpv['magtrack'] = ($sample['value']*180)/M_PI;	// Units: rad (Radian);
 				break;
-			case ('navigation.'.$signaKnames['magvar']):
+			case ('navigation.'.$signalKnames['magvar']):
 				$tpv['magvar'] = $sample['value'];
 				break;
 			}
@@ -248,7 +280,7 @@ if($buf['context'] == $self){	// сведения про себя
 		$WATCH[] = $tpv;
 	}
 }
-else {	// сведения про другие лоханки
+else {		//echo "Сведения про другие лоханки        \n"; 
 	// AIS в смысле gpsd -- это сведения про одно судно. Здесь одно судно -- это context.
 	$ais = array('class'=>'AIS','type'=>1,"scaled"=>true);	// type -- любой из полных, scaled -- данные в нормальных единицах, кроме скорости, которая в УЗЛАХ!!!
 	$ais['mmsi'] = substr($buf['context'],strrpos($buf['context'],'mmsi:')+5);	// здесь mmsi не может не быть
@@ -257,9 +289,29 @@ else {	// сведения про другие лоханки
 		$ais['second'] = strtotime($upd['timestamp']);	// это неправильно с точки зрения спецификации AIS, но мы поймём.
 		foreach($upd['values'] as $sample){
 			//if($sample['path']=='navigation.position') echo "Судно {$ais['mmsi']}: {$sample['path']}                         \n";
+			//echo "Судно {$ais['mmsi']}: {$sample['path']}                         \n";
+			//print_r($sample['value']); echo "\n";
 			switch($sample['path']){
-			case '':
-				if($sample['value']['name']) $ais['shipname'] = $sample['value']['name'];	// косяк SignalK
+			case '':	// косяк SignalK
+				foreach($sample['value'] as $key => $value){
+					//echo "Empty path, $key => $value                 \n";
+					switch($key){
+					case 'name':
+						$ais['shipname'] = $value;
+						break;
+					case 'mmsi':
+						$ais['mmsi'] = $value;
+						break;
+					case 'registrations':
+						$ais['imo'] = $value['imo'];		
+						break;
+					case 'communication':
+						//print_r($value);
+						if($value['callsignVhf']) $ais['callsign'] = $value['callsignVhf'];		
+						if($value['netAIS']) $ais['netAIS'] = $value['netAIS'];		
+						break;
+					}
+				}
 				break;
 			case 'name':
 				$ais['shipname'] = $sample['value']['name'];		
@@ -269,6 +321,9 @@ else {	// сведения про другие лоханки
 				break;
 			case 'communication.callsignVhf':
 				$ais['callsign'] = $sample['value'];		
+				break;
+			case 'communication.netAIS':
+				$ais['netAIS'] = $sample['value'];
 				break;
 			case 'navigation.courseOverGroundTrue':
 				$ais['course'] = (($sample['value']*180)/M_PI)*10;	// Units: rad (Radian), а AIS type 1 оно в десятых градуса
