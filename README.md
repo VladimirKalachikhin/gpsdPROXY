@@ -82,4 +82,4 @@ The output same as described for **gpsd**, exept:
 
 The forum will be more lively if you make a donation [via PayPal](https://paypal.me/VladimirKalachikhin)  at [galadrielmap@gmail.com](mailto:galadrielmap@gmail.com) or at [ЮMoney](https://yasobe.ru/na/galadrielmap)
 
-[Paid personal consalting](https://kwork.ru/it-support/20093939/galadrielmap-installation-configuration-and-usage-consulting)  
+[Paid personal consulting](https://kwork.ru/it-support/20093939/galadrielmap-installation-configuration-and-usage-consulting)  
