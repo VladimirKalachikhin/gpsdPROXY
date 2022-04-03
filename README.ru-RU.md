@@ -80,5 +80,11 @@ WATCH={"enable":true,"json":true,"minPeriod":"2"} посылает данные 
 >* ширина в метрах
 >* поле 'second' отсутствует, но есть поле 'timestamp' с временем unix
 
+## Поддержка
+[Форум](https://github.com/VladimirKalachikhin/Galadriel-map/discussions)
+
+Форум будет живее, если вы сделаете пожертвование [через PayPal](https://paypal.me/VladimirKalachikhin) по адресу [galadrielmap@gmail.com](mailto:galadrielmap@gmail.com) или на [ЮМани](https://yasobe.ru/na/galadrielmap).
+
+Вы можете получить [индивидуальную платную консультацию](https://kwork.ru/training-consulting/20093293/konsultatsii-po-ustanovke-i-ispolzovaniyu-galadrielmap) по использованию gpsdPROXY.
 
 
