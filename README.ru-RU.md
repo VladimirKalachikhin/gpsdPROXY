@@ -1,3 +1,4 @@
+[In English](https://github.com/VladimirKalachikhin/gpsdPROXY/blob/master/README.md)  
 # gpsdPROXY daemon [![License: CC BY-SA 4.0](https://img.shields.io/badge/License-CC%20BY--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-sa/4.0/)
 **version 0.5**  
 
@@ -11,7 +12,7 @@
 [https://lists.nongnu.org/archive/html/gpsd-users/2020-04/msg00093.html](https://lists.nongnu.org/archive/html/gpsd-users/2020-04/msg00093.html)  
 [https://lists.nongnu.org/archive/html/gpsd-users/2021-06/msg00017.html](https://lists.nongnu.org/archive/html/gpsd-users/2021-06/msg00017.html)  
 
-Однако надо заметить, что это довольно странная программа, потому что она, в общем, делает ровно то же самое, что и собственно **gpsd**: собирает данные из потока, агрегирует их и отдаёт структурированные данные по требованию. Разница во времени жизни данных.В **gpsdPROXY** его можно задавать явным образом для каждого типа данных.
+Однако надо заметить, что **gpsdPROXY** довольно странная программа, потому что она, в общем, делает ровно то же самое, что и собственно **gpsd**: собирает данные из потока, агрегирует их и отдаёт структурированные данные по требованию. Разница во времени жизни данных. В **gpsdPROXY** его можно задавать явным образом для каждого типа данных.
 Думаю, что такая функциональность должна быть непосредственно в **gpsd**. Но этого нет.  
 Зато можно применить **gpsdPROXY** для сбора данных от источников, в которых нет контроля достоверности данных. Например, от VenusOS, где нет совсем никакого контроля, и от SignalK, где есть хотя бы метка времени.
 Или просто использовать **gpsdPROXY** как websocket интерфейс к **gpsd**.
