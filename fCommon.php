@@ -756,9 +756,11 @@ case 'AIS':
 		//echo "\n instrumentsData[AIS][$vehicle]['data']:\n"; print_r($instrumentsData['AIS'][$vehicle]['data']);
 		break;
 	}
+	/*
 	// Посчитаем данные для контроля столкновений:
 	list($instrumentsData['AIS'][$vehicle]['collisionArea'],$instrumentsData['AIS'][$vehicle]['squareArea']) = updCollisionArea($instrumentsData['AIS'][$vehicle]['data'],$collisionDistance);	// fCollisions.php
 	echo "\n Calculated collision areas for $vehicle \n";
+	*/
 	break;
 case 'MOB':
 	$instrumentsData['MOB']['class'] = 'MOB';
@@ -771,10 +773,10 @@ case 'MOB':
 
 // Проверим актуальность всех данных
 $instrumentsDataUpdated = array_merge($instrumentsDataUpdated,chkFreshOfData());	
-
+/*
 // Проверим опасность столкновений
 $instrumentsDataUpdated = array_merge($instrumentsDataUpdated,chkCollisions());	
-
+*/
 //echo "\n gpsdDataUpdated\n"; print_r($instrumentsDataUpdated);
 //echo "\n instrumentsData\n"; print_r($instrumentsData);
 //echo "\n instrumentsData AIS\n"; print_r($instrumentsData['AIS']);
@@ -803,7 +805,7 @@ if($instrumentsData['TPV']){
 				}
 				*/
 				$instrumentsDataUpdated['TPV'] = TRUE;
-				echo "Данные ".$type." от устройства ".$device." протухли на ".($now - $cachedTime)." сек            \n";
+				//echo "Данные ".$type." от устройства ".$device." протухли на ".($now - $cachedTime)." сек            \n";
 			}
 			elseif((is_null($data['data'][$type])) and $gpsdProxyTimeouts['TPV'][$type] and (($now - $cachedTime) > ($TPVtimeoutMultiplexor*$gpsdProxyTimeouts['TPV'][$type]))) {	// Notice if on $gpsdProxyTimeouts not have this $type
 				unset($instrumentsData['TPV'][$device]['data'][$type]);
@@ -843,6 +845,7 @@ if($instrumentsData['AIS']) {	// IF быстрей, чем обработка Wa
 			foreach($instrumentsData['AIS'][$id]['cachedTime'] as $type => $cachedTime){
 				if(!is_null($vehicle['data'][$type]) and $gpsdProxyTimeouts['AIS'][$type] and (($now - $cachedTime) > $gpsdProxyTimeouts['AIS'][$type])) {
 					$instrumentsData['AIS'][$id]['data'][$type] = null;
+					/*
 					if(in_array($type,array('lat','lon','course','speed'))){	// удалим данные для контроля столкновений, если протухли исходные
 						//unset($instrumentsData['AIS'][$id]['collisionArea']);
 						//unset($instrumentsData['AIS'][$id]['squareArea']);
@@ -850,8 +853,9 @@ if($instrumentsData['AIS']) {	// IF быстрей, чем обработка Wa
 						list($instrumentsData['AIS'][$id]['collisionArea'],$instrumentsData['AIS'][$id]['squareArea']) = updCollisionArea($instrumentsData['AIS'][$id]['data'],$collisionDistance);	// fCollisions.php
 						echo "\n Re-calculate collision area for $id \n";
 					}
+					*/
 					$instrumentsDataUpdated['AIS'] = TRUE;
-					echo "Данные AIS ".$type." для судна ".$id." протухли на ".($now - $cachedTime)." сек                     \n";
+					//echo "Данные AIS ".$type." для судна ".$id." протухли на ".($now - $cachedTime)." сек                     \n";
 				}
 				elseif(is_null($vehicle['data'][$type]) and $gpsdProxyTimeouts['AIS'][$type] and (($now - $cachedTime) > (2*$gpsdProxyTimeouts['AIS'][$type]))) {
 					unset($instrumentsData['AIS'][$id]['data'][$type]);

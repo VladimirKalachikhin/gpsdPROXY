@@ -33,9 +33,9 @@ chdir(__DIR__); // задаем директорию выполнение скр
 
 require('params.php'); 	// 
 require('fCommon.php'); 	// 
-require('fGeodesy.php'); 	// 
-require('fGeometry.php'); 	// 
-require('fCollisions.php'); 	// 
+//require('fGeodesy.php'); 	// 
+//require('fGeometry.php'); 	// 
+//require('fCollisions.php'); 	// 
 
 if(IRun()) { 	// Я ли?
 	echo "I'm already running, exiting.\n"; 
