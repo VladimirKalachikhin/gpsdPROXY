@@ -233,7 +233,7 @@ Array
     [eph] => 0
 )
 */
-global $signalKnames,$devicePresent;
+global $signalKnames,$devicePresent,$boatInfo;
 $WATCH = array();
 
 $buf = json_decode($buf,TRUE);
@@ -274,6 +274,19 @@ if($buf['context'] == $self){	//echo "Сведения о себе              
 				break;
 			case ('navigation.'.$signalKnames['magvar']):
 				$tpv['magvar'] = $sample['value'];
+				break;
+			case 'design.length':
+				$boatInfo['length'] = $sample['value']['overall'];
+				break;
+			case 'design.beam':
+				$boatInfo['beam'] = $sample['value'];
+				break;
+			case 'sensors.ais.fromBow':
+				$boatInfo['to_bow'] = $sample['value'];
+				break;
+			case 'sensors.ais.fromCenter':
+				if($sample['value']>0) $boatInfo['to_port'] = $sample['value'];
+				else $boatInfo['to_starboard'] = -$sample['value'];
 				break;
 			}
 		}

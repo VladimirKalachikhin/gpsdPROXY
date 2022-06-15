@@ -31,8 +31,11 @@ Version 0.5.6
 */
 chdir(__DIR__); // задаем директорию выполнение скрипта
 
-require('fCommon.php'); 	// 
 require('params.php'); 	// 
+require('fCommon.php'); 	// 
+require('fGeodesy.php'); 	// 
+require('fGeometry.php'); 	// 
+require('fCollisions.php'); 	// 
 
 if(IRun()) { 	// Я ли?
 	echo "I'm already running, exiting.\n"; 
@@ -40,11 +43,12 @@ if(IRun()) { 	// Я ли?
 }
 
 // Self data
-// собственно, собираемые / кешируемые данные
+// собственно собираемые / кешируемые данные
 @mkdir(pathinfo($backupFileName, PATHINFO_DIRNAME));
 if(@filemtime($backupFileName)<(time()-86400)) @unlink($backupFileName);	// файл был обновлён более суток назад
 else $instrumentsData = @json_decode(@file_get_contents($backupFileName), true);
 if(!$instrumentsData) $instrumentsData = array(); 	
+// Переменные
 $lastBackupSaved = 0;	// время последнего сохранения кеша
 $lastClientExchange = 0;	// время последней коммуникации какого-нибудь клиента
 
@@ -68,8 +72,22 @@ array_walk_recursive($gpsdProxyTimeouts, function($val){
 										});
 //echo "minSocketTimeout=$minSocketTimeout;\n";
 
-
-
+// Характеристики судна, в основном для контроля столкновений
+if($netAISconfig) {	// params.php
+	$saveBoatInfo = $boatInfo;	// params.php
+	$boatInfo = parse_ini_file($netAISconfig,FALSE,INI_SCANNER_TYPED);
+	if(!$boatInfo) $boatInfo = $saveBoatInfo;
+	else {
+		if(!$boatInfo['length']) $boatInfo['length'] = $saveBoatInfo['length'];
+		if(!$boatInfo['beam']) $boatInfo['beam'] = $saveBoatInfo['beam'];
+		if(!$boatInfo['to_bow']) $boatInfo['to_bow'] = $saveBoatInfo['to_bow'];
+		if(!$boatInfo['to_stern']) $boatInfo['to_stern'] = $saveBoatInfo['to_stern'];
+		if(!$boatInfo['to_port']) $boatInfo['to_port'] = $saveBoatInfo['to_port'];
+		if(!$boatInfo['to_starboard']) $boatInfo['to_starboard'] = $saveBoatInfo['to_starboard'];
+	}
+	unset($saveBoatInfo);
+}
+//echo "boatInfo:"; print_r($boatInfo); echo "\n";
 
 
 // Поехали

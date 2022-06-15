@@ -43,10 +43,35 @@ $gpsdProxyTimeouts = array(  	// время в секундах после по�
 	'maneuver' => 60 	// 
 )
 );
+
+// Характеристики судна
+// Если используется netAIS -- укажите его конфигурационный файл, иначе -- укажите необходимое здесь
+// Информация из конфигурационного файла netAIS имеет преимущество.
+// Vehacle description
+// If netAIS is used -- specify its configuration file, otherwise -- specify the necessary here.
+// The information from the netAIS configuration file has an advantage.
+$netAISconfig = '../netAIS/boatInfo.ini';
+$boatInfo = array();
+/*
+$boatInfo = array(
+'length'=>9.1,	// Длина, м.
+'beam'=>3.05,	// Ширина, м.
+'to_bow'=>5,	// к носу от точки координат, в метрах. Reference point for reported position. Also indicates the dimension of ship (m) (see Fig. 42 and § 3.3.3) For SAR aircraft, the use of this field may be decided by the responsible administration. If used it should indicate the maximum dimensions of the craft. As default should A = B = C = D be set to “0”
+'to_stern'=>4,	// к корме. Reference point for reported position.
+'to_port'=>2.25,	// к левому борту. Reference point for reported position.
+'to_starboard'=>0.75	// к правому борту. Reference point for reported position.
+);
+*/
+
 // время в секундах, в течении которого цель AIS сохраняется в кеше после получения от неё последней информации
 $noVehicleTimeout = 10*60; 	// seconds, time of continuous absence of the vessel in AIS, when reached - is deleted from the data. "when a ship is moored or at anchor, the position message is only broadcast every 180 seconds;"
 // адрес и порт источника координат и остальных данных, по умолчанию -- gpsd
 // host and port of instruments data source, gpsd by default
+
+// Контроль возможности столкновений
+// Collision detector
+// 	Дистанция, до которой определяется возможность столкновения, в минутах движения
+$collisionDistance = 10;	// minutes of movement
 
 //$dataSourceHost = 'localhost';	// default
 //$dataSourcePort = 2947;	// default gpsd
