@@ -5,12 +5,13 @@ if(!$collisionDistance) $collisionDistance = 10;	// minutes of movement
 function chkCollisions(){
 /* Проверяет возможность столкновений
 Заполняет $instrumentsData['collisions']
-Возвращает ['AIS' => TRUE] или []
+Возвращает ['ALARM' => TRUE] или []
 */
-global $instrumentsData,$boatInfo;
-$instrumentsDataUpdated = array(); // массив, где указано, какие классы изменениы и кем.
+global $instrumentsData,$boatInfo,$collisionDistance;
+$instrumentsDataUpdated = array(); // массив, где указано, какие классы изменениы
 
 //echo "chkCollisions instrumentsData['AIS']:"; print_r($instrumentsData['AIS']); echo "\n";
+if(!$instrumentsData['TPV']) return $instrumentsDataUpdated;
 if(!$instrumentsData['AIS']) return $instrumentsDataUpdated;
 
 // Определим свежие координаты, курс и скорость себя
@@ -37,6 +38,7 @@ foreach($instrumentsData['TPV'] as $device => $data){
 			$freshTtime = $cachedTime;
 			$boatInfo['track'] = $data['data'][$type];
 			$boatInfo['course'] = $data['data'][$type];	// в AIS оно course, так что для совместимости
+			//echo "\n boatInfo['course']={$boatInfo['course']}; is_int:".(is_int($boatInfo['course']))."; boatInfo['course']===0:".($boatInfo['course']===0).";\n";
 			break;
 		case 'speed':
 			//echo "\nspeed={$data['data'][$type]}\n";
@@ -51,17 +53,20 @@ foreach($instrumentsData['TPV'] as $device => $data){
 }
 if(!$boatInfo['lat'] or !$boatInfo['lon']) return $instrumentsDataUpdated;
 list($boatInfo['collisionArea'],$boatInfo['squareArea']) = updCollisionArea($boatInfo,$collisionDistance);	// 
-//echo "chkCollisions boatInfo:"; print_r($boatInfo); echo "\n";
+//echo "chkCollisions self boatInfo:"; print_r($boatInfo); echo "\n";
 
-$instrumentsData['collisions'] = array();
+$wasCollissions = @count($instrumentsData['ALARM']['collisions']);	// было опасностей может не быть
+$instrumentsData['ALARM']['collisions'] = array();
+$instrumentsData['ALARM']['collisionSegments'] = array();	///////// for collision test purpose /////////
 foreach($instrumentsData['AIS'] as $id => $vehicle){	// для каждого судна из AIS
 	if(!$vehicle['data']['lat'] or !$vehicle['data']['lon']) continue;
 	if(chkCollision($id)) {	// проверим возможность столкновения
-		$instrumentsData['collisions'][] = $id;
-		$instrumentsDataUpdated = array('AIS' => true);
-		echo "\n Collision with $id\n";
+		$instrumentsData['ALARM']['collisions'][$id] = array('lat'=>$vehicle['data']['lat'],'lon'=>$vehicle['data']['lon']);
+		$instrumentsDataUpdated = array('ALARM' => true);
+		//echo "\n Collision with $id\n";
 	}
 }
+if(!$instrumentsDataUpdated and $wasCollissions) $instrumentsDataUpdated = array('ALARM' => true);	// опасностей было, но не стало -- надо сообщить
 return $instrumentsDataUpdated;
 } // end function chkCollisions
 
@@ -92,6 +97,7 @@ $unitedSquareArea = array(
 		'lat'=>min($instrumentsData['AIS'][$vesselID]['squareArea']['bottomRight']['lat'],$boatInfo['squareArea']['bottomRight']['lat'])
 	)
 );
+$instrumentsData['ALARM']['collisionSegments']['unitedSquareAreas'][] = $unitedSquareArea;	///////// for collision test purpose /////////
 
 // Пересчитаем координаты точек collisionArea относительно общего прямоугольника,
 // от верхнего левого угла, в метрах
@@ -119,6 +125,9 @@ for($i=0; $i<$lenI; $i++){	// для каждого отрезка своей о
 		if($nextJ==$lenJ) $nextJ = 0;
 		if(segmentIntersection($selfLocalCollisionArea[$i],$selfLocalCollisionArea[$nextI],$targetLocalCollisionArea[$j],$targetLocalCollisionArea[$nextJ])){	// две точки первого отрезка, две точки второго отрезка fGeometry.php
 			$isIntersection = true;
+			///////// for collision test purpose /////////
+			$instrumentsData['ALARM']['collisionSegments']['intersections'][$vesselID][] = array(array($boatInfo['collisionArea'][$i],$boatInfo['collisionArea'][$nextI]),array($instrumentsData['AIS'][$vesselID]['collisionArea'][$j],$instrumentsData['AIS'][$vesselID]['collisionArea'][$nextJ]));	
+			///////// for collision test purpose /////////
 			break 2;
 		}
 	}
@@ -128,23 +137,25 @@ for($i=0; $i<$lenI; $i++){	// для каждого отрезка своей о
 // нашего вероятного нахождения?
 // наша область вероятного нахождения -- всегда треугольник в этот момент (иначе -- цель уже у нас на палубе).
 if(!$isIntersection){
+	$isIntersection = true;	// все точки лежат внутри треугольника		
 	foreach($targetLocalCollisionArea as $point){	// для каждой точки области цели
 		if(!isInTriangle_Vector($selfLocalCollisionArea[0], $selfLocalCollisionArea[1], $selfLocalCollisionArea[2], $point)){	// точка вне нашего треугольника
+			$isIntersection = false;	// хотя бы одна точка не лежат внутри треугольника		
 			break;
 		};
 	};
-	$isIntersection = true;	// все точки лежат внутри треугольника		
 };
 // Возможно, вся область нашего вероятного нахождения лежит внутри области
 // вероятного нахождения цели?
 // область вероятного нахождения цели -- всегда треугольник в этот момент (иначе -- мы уже на палубе цели).
 if(!$isIntersection){
+	$isIntersection = true;	// все точки лежат внутри треугольника		
 	foreach($selfLocalCollisionArea as $point){	// для каждой точки области цели
 		if(!isInTriangle_Vector($targetLocalCollisionArea[0], $targetLocalCollisionArea[1], $targetLocalCollisionArea[2], $point)){	// точка вне нашего треугольника
+			$isIntersection = false;	// хотя бы одна точка не лежат внутри треугольника		
 			break;
 		};
 	};
-	$isIntersection = true;	// все точки лежат внутри треугольника
 };
 
 return $isIntersection;
@@ -164,18 +175,34 @@ $squareArea = array();
 if(!@$boatInfo['lat'] or !@$boatInfo['lon']) return array($collisionArea,$squareArea);
 $toBack = 30;	// метров
 if($boatInfo['length']) $toBack = $boatInfo['length'];
+$toFront = 2*$toBack;
+if($boatInfo['to_bow']) {
+	$toBack = $toBack-$boatInfo['to_bow']+$toBack/2;
+	$toFront = $toBack*3/2+$boatInfo['to_bow'];
+}
+elseif($boatInfo['to_stern']) {
+	$toBack = $boatInfo['to_stern']+$toBack/2;
+	$toFront = $toBack*3/2+($toBack-$boatInfo['to_stern']);
+}
 $bearing = null;
-if($boatInfo['course'] or ($boatInfo['course']===0)) $bearing = $boatInfo['course'];	// degrees
-elseif($boatInfo['track'] or ($boatInfo['track']===0)) $bearing = $boatInfo['track'];	// degrees
+//echo "\n boatInfo['course']={$boatInfo['course']}; is_int:".(is_int($boatInfo['course']))."; boatInfo['course']===0:".($boatInfo['course']===0).";\n";
+if(isset($boatInfo['course'])) $bearing = $boatInfo['course'];	// degrees
+elseif(isset($boatInfo['track'])) $bearing = $boatInfo['track'];	// degrees
+if($boatInfo['speed']>1) {	// судно движется
+	$toFront = $boatInfo['speed'] * $collisionDistance * 60 + $toBack;	// speed is real, so cannot be compared to equal
+}
+else {	// судно стоит
+	if(isset($boatInfo['heading'])) $bearing = $boatInfo['heading'];	// degrees
+}
 $position = array('lat'=>$boatInfo['lat'],'lon'=>$boatInfo['lon']);
 $collisionArea[] = destinationPoint($position,$toBack,$bearing+180);	// назад fGeodesy.php
-if($boatInfo['speed']>1) $toFront = $boatInfo['speed'] * $collisionDistance * 60 + $toBack;	// speed is real, so cannot be compared to equal
-else $toFront = 2*$toBack;
-if(($bearing === null) or (($bearing == 0) and ($boatInfo['speed']))) {	// ромбик
-	$aside = $toFront/2;
-	$collisionArea[] = destinationPoint($position,$aside,$bearing-90);	// 
-	$collisionArea[] = destinationPoint($collisionArea[0],$toFront,$bearing);	// 
-	$collisionArea[] = destinationPoint($position,$aside,$bearing+90);	// 
+//echo "\nbearing=$bearing; boatInfo['speed']={$boatInfo['speed']}\n";
+
+// Часто приборы AIS шлют 0, когда нет значения. Увы.
+if(($bearing === null) or (($bearing == 0) and ($boatInfo['speed']<1))) {	// ромбик
+	$collisionArea[] = destinationPoint($position,$toBack,$bearing-90);	// 
+	$collisionArea[] = destinationPoint($position,$toBack,$bearing);	// 
+	$collisionArea[] = destinationPoint($position,$toBack,$bearing+90);	// 
 }
 else {	// треугольник
 	$collisionArea[] = destinationPoint($collisionArea[0],$toFront,$bearing-5.73);	// 0.1 radian
@@ -196,6 +223,12 @@ $squareArea = array(
 		'lat'=>min($lats)
 	)
 );	// 
+/*
+if($boatInfo['mmsi']=='371255000'){
+	echo "\n updCollisionArea boatInfo:"; print_r($boatInfo); print_r($collisionArea);
+	echo "toFront=$toFront; toBack=$toBack; bearing=$bearing;\n";
+}
+*/
 return array($collisionArea,$squareArea);
 } // end function updCollisionArea
 

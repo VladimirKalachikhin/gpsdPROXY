@@ -33,9 +33,9 @@ chdir(__DIR__); // задаем директорию выполнение скр
 
 require('params.php'); 	// 
 require('fCommon.php'); 	// 
-//require('fGeodesy.php'); 	// 
-//require('fGeometry.php'); 	// 
-//require('fCollisions.php'); 	// 
+require('fGeodesy.php'); 	// 
+require('fGeometry.php'); 	// 
+require('fCollisions.php'); 	// 
 
 if(IRun()) { 	// Я ли?
 	echo "I'm already running, exiting.\n"; 
@@ -63,7 +63,7 @@ $gpsdProxydevice = array(
 );
 if(!$gpsdProxyHost) $gpsdProxyHost='localhost'; 	// я сам. Хост/порт для обращения к gpsdProxy
 if(!$gpsdProxyPort) $gpsdProxyPort=3838;
-$pollWatchExist = FALSE;	// флаг, что есть сокеты в режиме WATCH, когда данные им посылаются непрерывно
+$pollWatchExist = array();	// флаг, что есть сокеты в режиме WATCH, когда данные им посылаются непрерывно, и список имеющихся подписок
 $minSocketTimeout = 86400;	// сек., сутки
 // определим, какое минимальное время протухания величины указано в конфиге
 array_walk_recursive($gpsdProxyTimeouts, function($val){
@@ -124,6 +124,7 @@ $messages = array(); 	//
 'inBuf'=>''	// буфер для сбора строк обращения клиента, когда их больше одной
 'protocol'=>''/'WS'	// признак, что общение происходит по протоколу socket (''), или websocket ('WS')
 'zerocnt' => 0	// счётчик подряд посланных пустых сообщений. 
+'subscribe'=>'' // строка подписки, TPV,AIS,ALARM
 ]" номеров сокетов подключившихся клиентов
 */
 $dataSourceZeroCNT = 0;	// счётчик пустых строк, пришедших подряд от источника данных
@@ -206,14 +207,15 @@ do {
 			}
 			
 			$msgLen = mb_strlen($msg,'8bit');
-			$res = socket_write($socket, $msg, $msgLen);
+			$res = @socket_write($socket, $msg, $msgLen);
 			if($res === FALSE) { 	// клиент умер
-				echo "\n\nFailed to write data to socket by: " . socket_strerror(socket_last_error($sock)) . "\n";
+				echo "\nFailed to write data to socket $socket by: " . socket_strerror(socket_last_error($sock)) . "\n";
+				//echo "Не удалось записать: $msg\n";
 				chkSocks($socket);
 				continue 3;	// к следующему сокету
 			}
 			elseif($res <> $msgLen){	// клиент не принял всё. У него проблемы?
-				echo "\n\nNot all data was writed to socket by: " . socket_strerror(socket_last_error($sock)) . "\n";
+				echo "\n\nNot all data was writed to socket $socket by: " . socket_strerror(socket_last_error($sock)) . "\n";
 				chkSocks($socket);
 				continue 3;	// к следующему сокету
 			}
@@ -505,22 +507,34 @@ do {
 			//echo "\n\nRecieved command from Client #$sockKey $socket command=$command; params=$params;\n";
 			if($params) $params = json_decode($params,TRUE);
 			// Обработаем команду
+			if(@$params['subscribe']) {	// в результате $params всегда есть.
+				$params['subscribe'] = array_fill_keys(explode(',',$params['subscribe']),TRUE);
+			}
+			else $params['subscribe'] = array('TPV'=>TRUE,'AIS'=>TRUE,'ALARM'=>TRUE);
 			switch($command){
 			case 'WATCH': 	// default: ?WATCH={"enable":true}; без параметров === {"enable":false} Это правильно?
 				if($params['enable'] == TRUE){
-					if(!$params or count($params)>1){ 	// 
+					//echo "\n count(params)=".(count($params)); print_r($params);
+					if(count($params)>2){ 	// всегда есть $params['subscribe'], POLL имеет "enable":true, WATCH -- ещё "json":true
 						$messages[$sockKey]['POLL'] = 'WATCH'; 	// отметим, что WATCH получили в виде, означающем, что это не POLL, надо слать данные непрерывно
-						$messages[$sockKey]['subscribe'] = @$params['subscribe'];
 						$messages[$sockKey]['minPeriod'] = @$params['minPeriod'];
-						$pollWatchExist = TRUE;	// отметим, что есть сокет с режимом WATCH
-						// Отправим ему первые данные
-						if($messages[$sockKey]['subscribe']=="TPV") $messages[$sockKey]['output'][] = json_encode(makeWATCH())."\r\n\r\n";
-						elseif($messages[$sockKey]['subscribe']=="AIS") $messages[$sockKey]['output'][] = json_encode(makeAIS())."\r\n\r\n";
-						elseif(!$messages[$sockKey]['subscribe']) {
-							$messages[$sockKey]['output'][] = json_encode(makeWATCH())."\r\n\r\n";
-							$messages[$sockKey]['output'][] = json_encode(makeAIS())."\r\n\r\n";
+						$messages[$sockKey]['subscribe'] = $params['subscribe'];
+						
+						// Сразу отправим ему все уже существующие данные в соответствии с его подпиской
+						foreach($messages[$sockKey]['subscribe'] as $subscribe=>$v){
+							$pollWatchExist[$subscribe] = TRUE;	// отметим, что есть сокет с режимом WATCH и некоторой подпиской
+							switch($subscribe){
+							case "TPV":
+								$messages[$sockKey]['output'][] = json_encode(makeWATCH())."\r\n\r\n";
+								break;
+							case "AIS":
+								$messages[$sockKey]['output'][] = json_encode(makeAIS())."\r\n\r\n";
+								break;
+							case "ALARM":
+								$messages[$sockKey]['output'][] = json_encode(makeALARM())."\r\n\r\n";
+								break;
+							}
 						}
-						if($instrumentsData["MOB"] and $instrumentsData["MOB"]['status']) $messages[$sockKey]['output'][] = json_encode($instrumentsData["MOB"])."\r\n\r\n";
 					}
 					else {
 						$messages[$sockKey]['POLL'] = TRUE; 	// отметим, что WATCH получили, можно отвечать на POLL
@@ -545,16 +559,7 @@ do {
 				break;
 			case 'POLL':
 				if(!$messages[$sockKey]['POLL']) continue 2; 	// на POLL будем отзываться только после ?WATCH={"enable":true}
-				// $POLL заполняется при каждом поступлении от источника данных новых данных					
-				$POLL = makePOLL();
-				switch(@$params['subscribe']){
-				case "TPV":
-					unset($POLL["ais"]);
-					break;
-				case "AIS":
-					$POLL["tpv"]=array();	// tpv -- обязательно
-					break;
-				}
+				$POLL = makePOLL($params['subscribe']);	// подготовим данные в соответствии с подпиской
 				$messages[$sockKey]['output'][] = json_encode($POLL)."\r\n\r\n"; 	// будем копить сообщения, вдруг клиент не готов их принять
 				unset($POLL);
 				break;
@@ -581,7 +586,7 @@ do {
 			}
 		}
 	}
-	
+	//echo "\n messages: "; print_r($messages); 
 } while (true);
 
 foreach($sockets as $socket) {

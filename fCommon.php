@@ -93,7 +93,7 @@ if($socket == $dataSourceConnectionObject){ 	// умерло соединени�
 	$devicePresent = array_unique(array_merge($devicePresent,$newDevices));
 	echo "New handshaking, will recieve data from $dataSourceHumanName\n";
 }
-elseif($socket == $masterSock){ 	// умерло входящее подключение
+elseif($socket == $masterSock){ 	// умерло входное подключение
 	echo "\nIncoming socket die. Try to recreate.\n";
 	@socket_close($masterSock); 	// он может быть уже закрыт
 	$masterSock = createSocketServer($gpsdProxyHost,$gpsdProxyPort,20); 	// Входное соединение
@@ -473,54 +473,59 @@ if($inInstrumentsData) {
 }
 else $instrumentsDataUpdated = updInstrumentsData(array(),$sockKey);	// вызвали для проверки протухших данных и отправке, если
 //echo "Что изменилось, instrumentsDataUpdated: "; print_r($instrumentsDataUpdated);
+
 dataSourceSave(); 	// сохраним в файл, если пора
+
+// Подготовим к отправке каждому подписчику данные в соответствии с подпиской.
 //echo "\npollWatchExist=$pollWatchExist;"; print_r($inInstrumentsData);
 if($pollWatchExist){	// есть режим WATCH, надо подготовить данные. От gpsd (или что там вместо) может прийти пустое или непонятное
-	// Не надо ли что-нибудь сразу отправить?
-	$WATCH = null; $ais = null; $MOB = null;
-	$pollWatchExist = FALSE;	// 
-	$now = microtime(true);
-	foreach($messages as $n => $sockData){
-		if($sockData['POLL'] === 'WATCH'){	// для соответствующего сокета указано посылать непрерывно. === потому что $data['POLL'] на момент сравнения может иметь тип boolean, и при == произойдёт приведение 'WATCH' к boolean;
-			$pollWatchExist = TRUE;	// отметим, что есть сокет с режимом WATCH
-			if(($now - @$sockData['lastSend'])<floatval(@$sockData['minPeriod'])) continue;	// частота отсылки данных
-			$messages[$n]['lastSend'] = $now;
-
-			//echo "n=$n; sockData:"; print_r($sockData);
-			if((@$sockData['subscribe']=="TPV") and $instrumentsDataUpdated["TPV"]){
-				if(!$WATCH) $WATCH = makeWATCH();
-				$messages[$n]['output'][] = json_encode($WATCH)."\r\n\r\n";
-			}
-			elseif((@$sockData['subscribe']=="AIS") and $instrumentsDataUpdated["AIS"]){
-				if(!$ais) $ais = makeAIS();
-				$out = array('class' => 'AIS');	// это не вполне правильный класс, но ничему не противоречит
-				$out['ais'] = $ais;
-				$messages[$n]['output'][] = json_encode($out)."\r\n\r\n";
-				unset($out);
-			}
-			elseif(!@$sockData['subscribe']){	// не указали подписку, шлём всё
-				if($instrumentsDataUpdated["TPV"]){
-					if(!$WATCH) $WATCH = makeWATCH();
-					$messages[$n]['output'][] = json_encode($WATCH)."\r\n\r\n";
-				}
-				if($instrumentsDataUpdated["AIS"]){	// 
-					if(!$ais) $ais = makeAIS();
-					$out = array('class' => 'AIS');
-					$out['ais'] = $ais;
-					$messages[$n]['output'][] = json_encode($out)."\r\n\r\n";
-					unset($out);
-				}
-			}
-			//echo "gpsdDataUpdated[MOB]={$instrumentsDataUpdated["MOB"]};        \n";			
-			if(isset($instrumentsDataUpdated["MOB"]) and $instrumentsDataUpdated["MOB"]!==$n){	// не тот сокет, который прислал данные. Если вернуть данные тому же, то он может их снова прислать из каких-то своих соображений, и так бесконечно.
-			//if(isset($instrumentsDataUpdated["MOB"]) and $instrumentsDataUpdated["MOB"]===$n){	// тот сокет, который прислал данные, для тестовых целей
-				//echo "Prepare to send MOB data to WACH'ed socket #$n;                      \n";
-				//print_r($instrumentsData["MOB"]);
-				$messages[$n]['output'][] = json_encode($instrumentsData["MOB"])."\r\n\r\n";
-			}
-			
+	// чтобы для всех подключенных клиентов создать данные один раз
+	$WATCH = null; $ais = null; $ALARM = null;	
+	$updatedTypes = array_intersect_assoc($instrumentsDataUpdated,$pollWatchExist);	// те обновленные типы данных, на которые есть подписка
+	//echo "\n updatedTypes:"; print_r($updatedTypes);
+	foreach($updatedTypes as $updatedType => $v){
+		switch($updatedType){
+		case "TPV":
+			$WATCH = json_encode(makeWATCH())."\r\n\r\n";
+			break;
+		case "AIS":
+			$ais = json_encode(makeAIS())."\r\n\r\n";
+			break;
+		case "ALARM":
+			$ALARM = json_encode(makeALARM())."\r\n\r\n";
+			break;
 		}
 	}
+	$pollWatchExist = array();	// нет сокетов с режимом WATCH
+	$now = microtime(true);
+	foreach($messages as $socket => $sockData){	// для каждого сокета
+		if($sockData['POLL'] !== 'WATCH') continue;
+		// для соответствующего сокета указано посылать непрерывно.
+		// === потому что $data['POLL'] на момент сравнения может иметь тип boolean, и при == произойдёт приведение 'WATCH' к boolean;
+		$pollWatchExist = array_merge($pollWatchExist,$sockData['subscribe']);	// отметим, что есть сокет с режимом WATCH и некоторой подпиской
+		if(($now - @$sockData['lastSend'])<floatval(@$sockData['minPeriod'])) continue;	// частота отсылки данных
+		$messages[$socket]['lastSend'] = $now;
+
+		//echo "socket=$socket; sockData:"; print_r($sockData);
+		foreach($sockData['subscribe'] as $subscribe=>$v){
+			if($updatedTypes[$subscribe]){	// по этой подписке есть свежие данные
+				switch($subscribe){
+				case "TPV":
+					$messages[$socket]['output'][] = $WATCH;
+					break;
+				case "AIS":
+				$messages[$socket]['output'][] = $ais;
+					break;
+				case "ALARM":
+				$messages[$socket]['output'][] = $ALARM;
+					break;
+				}
+			}
+		}
+	}
+	unset($WATCH);
+	unset($ais);
+	unset($ALARM);
 }
 } // end function updAndPrepare
 
@@ -559,7 +564,18 @@ case 'TPV':
 	// собирает данные по устройствам, в том числе и однородные
 	$dataTime = $now;
 	foreach($inInstrumentsData as $type => $value){ 	// обновим данные
-		$instrumentsData['TPV'][$inInstrumentsData['device']]['data'][$type] = $value; 	// php создаёт вложенную структуру, это не python
+		// php создаёт вложенную структуру, это не python
+		if(is_numeric($value)){
+			// int or float. нет способа привести к целому или вещественному без явной проверки, 
+			// кроме как вот через такую задницу. 
+			// Однако, оказывается, что числа уже всегда? И чё теперь? Ибо (int)0 !== (float)0
+			$instrumentsData['TPV'][$inInstrumentsData['device']]['data'][$type] = 0+$value; 	
+			//echo "\ntype=$type; value=$value; is_int:".(is_int($value))."; is_float:".(is_float($value))."; \n";
+		}
+		else{
+			$instrumentsData['TPV'][$inInstrumentsData['device']]['data'][$type] = $value; 	// string
+		}
+	
 		if($type == 'time') { // надеемся, что время прислали до содержательных данных
 			$dataTime = strtotime($value);
 			//echo "\nПрисланное время: |$value|$dataTime, восстановленное: |".date(DATE_ATOM,$dataTime)."|".strtotime(date(DATE_ATOM,$dataTime))." \n";
@@ -667,7 +683,7 @@ case 'AIS':
 			}
 			if(isset($inInstrumentsData['speed'])){
 				if($inInstrumentsData['scaled']) { 	// данные уже приведены к человеческому виду, но скорость в УЗЛАХ!!!!
-					$instrumentsData['AIS'][$vehicle]['data']['speed'] = ((int)$inInstrumentsData['speed']*1852)/(60*60); 	// SOG Speed over ground in m/sec 	
+					$instrumentsData['AIS'][$vehicle]['data']['speed'] = ((float)$inInstrumentsData['speed']*1852)/(60*60); 	// SOG Speed over ground in m/sec 	
 				}
 				else {
 					if($inInstrumentsData['speed']>1022) $instrumentsData['AIS'][$vehicle]['data']['speed'] = NULL;
@@ -756,27 +772,26 @@ case 'AIS':
 		//echo "\n instrumentsData[AIS][$vehicle]['data']:\n"; print_r($instrumentsData['AIS'][$vehicle]['data']);
 		break;
 	}
-	/*
 	// Посчитаем данные для контроля столкновений:
 	list($instrumentsData['AIS'][$vehicle]['collisionArea'],$instrumentsData['AIS'][$vehicle]['squareArea']) = updCollisionArea($instrumentsData['AIS'][$vehicle]['data'],$collisionDistance);	// fCollisions.php
-	echo "\n Calculated collision areas for $vehicle \n";
-	*/
+	//echo "\n Calculated collision areas for $vehicle \n";
 	break;
 case 'MOB':
-	$instrumentsData['MOB']['class'] = 'MOB';
-	$instrumentsData['MOB']['status'] = $inInstrumentsData['status'];
-	$instrumentsData['MOB']['points'] = $inInstrumentsData['points'];
-	$instrumentsDataUpdated['MOB'] = $sockKey;
-	//echo "MOB: "; print_r($instrumentsData['MOB']);
+	$instrumentsData['ALARM']['MOB']['class'] = 'MOB';
+	$instrumentsData['ALARM']['MOB']['status'] = $inInstrumentsData['status'];
+	$instrumentsData['ALARM']['MOB']['points'] = $inInstrumentsData['points'];
+	$instrumentsDataUpdated['ALARM'] = $sockKey;
+	//echo "MOB: "; print_r($instrumentsData['ALARM']['MOB']);
 	break;
 }
 
 // Проверим актуальность всех данных
 $instrumentsDataUpdated = array_merge($instrumentsDataUpdated,chkFreshOfData());	
-/*
+
 // Проверим опасность столкновений
+// при каждом поступлении любых данных?
 $instrumentsDataUpdated = array_merge($instrumentsDataUpdated,chkCollisions());	
-*/
+
 //echo "\n gpsdDataUpdated\n"; print_r($instrumentsDataUpdated);
 //echo "\n instrumentsData\n"; print_r($instrumentsData);
 //echo "\n instrumentsData AIS\n"; print_r($instrumentsData['AIS']);
@@ -845,23 +860,22 @@ if($instrumentsData['AIS']) {	// IF быстрей, чем обработка Wa
 			foreach($instrumentsData['AIS'][$id]['cachedTime'] as $type => $cachedTime){
 				if(!is_null($vehicle['data'][$type]) and $gpsdProxyTimeouts['AIS'][$type] and (($now - $cachedTime) > $gpsdProxyTimeouts['AIS'][$type])) {
 					$instrumentsData['AIS'][$id]['data'][$type] = null;
-					/*
-					if(in_array($type,array('lat','lon','course','speed'))){	// удалим данные для контроля столкновений, если протухли исходные
-						//unset($instrumentsData['AIS'][$id]['collisionArea']);
-						//unset($instrumentsData['AIS'][$id]['squareArea']);
-						//echo "\n Removed collision area for $id \n";
+					if(in_array($type,array('lat','lon','course','heading','speed'))){	// удалим данные для контроля столкновений, если протухли исходные
 						list($instrumentsData['AIS'][$id]['collisionArea'],$instrumentsData['AIS'][$id]['squareArea']) = updCollisionArea($instrumentsData['AIS'][$id]['data'],$collisionDistance);	// fCollisions.php
-						echo "\n Re-calculate collision area for $id \n";
+						//echo "\n Re-calculate collision area for $id \n";
 					}
-					*/
 					$instrumentsDataUpdated['AIS'] = TRUE;
 					//echo "Данные AIS ".$type." для судна ".$id." протухли на ".($now - $cachedTime)." сек                     \n";
 				}
 				elseif(is_null($vehicle['data'][$type]) and $gpsdProxyTimeouts['AIS'][$type] and (($now - $cachedTime) > (2*$gpsdProxyTimeouts['AIS'][$type]))) {
 					unset($instrumentsData['AIS'][$id]['data'][$type]);
 					unset($instrumentsData['AIS'][$id]['cachedTime'][$type]);
+					if(in_array($type,array('lat','lon','course','heading','speed'))){	// удалим данные для контроля столкновений, если протухли исходные
+						list($instrumentsData['AIS'][$id]['collisionArea'],$instrumentsData['AIS'][$id]['squareArea']) = updCollisionArea($instrumentsData['AIS'][$id]['data'],$collisionDistance);	// fCollisions.php
+						//echo "\n Re-calculate collision area for $id \n";
+					}
 					$instrumentsDataUpdated['AIS'] = TRUE;
-					//echo "Данные AIS ".$type." для судна ".$id." протухли на ".($now - $cachedTime)." сек                     \n";
+					//echo "Данные AIS ".$type." для судна ".$id." совсем протухли на ".($now - $cachedTime)." сек                     \n";
 				}
 			}
 		}
@@ -881,6 +895,13 @@ if((time()-$lastBackupSaved)>$backupTimeout){
 } // end function savepsdData
 
 function makeAIS(){
+/* делает объект ais */
+$ais = array('class' => 'AIS');	// это не вполне правильный класс, но ничему не противоречит
+$ais['ais'] = makeAISlist();
+return $ais;
+} // end function makeAIS
+
+function makeAISlist(){
 /* делает массив ais */
 global $instrumentsData;
 
@@ -890,12 +911,13 @@ if($instrumentsData['AIS']) {
 		//$data['data']["class"] = "AIS"; 	// вроде бы, тут не надо?...
 		$data['data']["timestamp"] = $data["timestamp"];		
 		$ais[$data['data']['mmsi']] = $data['data'];
+		$ais[$data['data']['mmsi']]['collisionArea'] = $data['collisionArea'];	///////// for collision test purpose /////////
 	}
 }
 return $ais;
-} // end function makeAIS
+} // end function makeAISlist
 
-function makePOLL(){
+function makePOLL($subscribes=array()){
 /* Из глобального $instrumentsData формирует массив ответа на ?POLL протокола gpsd
 */
 global $instrumentsData;
@@ -908,16 +930,32 @@ $POLL = array(	// данные для передачи клиенту как POL
 	"sky" => array(),	// обязательно по спецификации, пусто
 );
 //echo "\n instrumentsData\n"; print_r($instrumentsData['TPV']);
-if($instrumentsData['TPV']){
-	foreach($instrumentsData['TPV'] as $device => $data){
-		$POLL["active"] ++;
-		$POLL["tpv"][] = $data['data'];
+foreach($subscribes as $subscribe=>$v){
+	switch($subscribe){
+	case "TPV":
+		if($instrumentsData['TPV']){
+			foreach($instrumentsData['TPV'] as $device => $data){
+				$POLL["active"] ++;
+				$POLL["tpv"][] = $data['data'];
+			}
+		}
+		break;
+	case "AIS":
+		if($instrumentsData['AIS'] and (strpos($subscribe,"AIS")!==false or !$subscribe)){
+			$POLL["ais"] = makeAISlist();
+		}
+		break;
+	case "ALARM":
+		if($instrumentsData['ALARM']["MOB"]){
+			$POLL["mob"] = $instrumentsData['ALARM']["MOB"];
+		}
+		if($instrumentsData['ALARM']["collisions"]){
+			$POLL["collisions"] = $instrumentsData['ALARM']["collisions"];
+		}
+		break;
 	}
 }
-$POLL["ais"] = makeAIS();
-if($instrumentsData["MOB"]){
-	$POLL["mob"] = $instrumentsData["MOB"];
-}
+//echo "\n POLL:"; print_r($POLL);
 return $POLL;
 } // end function makePOLL
 
@@ -943,6 +981,11 @@ if($instrumentsData['TPV']){
 			$lasts[$type] = $data['cachedTime'][$type];
 		}
 	}
+	///////// for collision test purpose /////////
+	global $boatInfo;
+	$WATCH['collisionArea'] = $boatInfo['collisionArea'];	
+	$WATCH['collisionSegments'] = $instrumentsData['ALARM']['collisionSegments'];	
+	///////// for collision test purpose /////////
 }
 //print_r($times);
 if($times) $WATCH['time'] = date(DATE_ATOM,min($times));	// могут быть присланы левые значения времени, или не присланы совсем
@@ -950,6 +993,17 @@ else $WATCH['time'] = date(DATE_ATOM,time());
 //print_r($WATCH);
 return $WATCH;
 } // end function makeWATCH
+
+function makeALARM(){
+/**/
+global $instrumentsData;
+$ret = '';
+//echo "\n instrumentsData[ALARM]:"; print_r($instrumentsData["ALARM"]);
+if(!$instrumentsData["ALARM"]) return $ret;
+$ret = array('class'=>'ALARM');
+$ret['alarms'] = $instrumentsData["ALARM"];
+return $ret;
+} // end function makeALARM
 
 function wsDecode($data){
 /* Возвращает:

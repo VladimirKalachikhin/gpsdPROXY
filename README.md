@@ -24,9 +24,6 @@ So data from AIS stream and instruments such as echosounder and wind meter becom
 
 In addition, you may use ?WATCH={"enable":true,"json":true} stream, just like from original **gpsd**.   
 
-## Require
-mbstring enabled.
-
 ### Data source
 Normally, the gpspPROXY works with **gpsd** on the same or the other machine. In this case, the data is the most complete and reliable.
 
@@ -43,31 +40,38 @@ The gpsdPROXY can get data from Signal K local or via LAN. If it possible, gpsdP
 ##### Limitations
 Indeed, SignalK can be used from gpsdPROXY only local. Via LAN it's odd.
 
+### Collision detections
+The gpsdPROXY tries to determine the possibility of a collision according to the adopted collision model based on the specified detection distance and the probability of deviations from the course.  
+![collision model](screenshots/s1.jpeg)<br>  
+ Object `{"class":"ALARM","alarms":{"collisions":[]}}` contains a list of mmsi and position of vessels that have a risk of collision. The [GaladrielMap](https://github.com/VladimirKalachikhin/Galadriel-map) highlights such vessels on the map and indicates the direction to them on self cursor.
+
+## Configure
+See _params.php_
+
 ## Usage
 ```
 $ php gpsdPROXY.php
 ```
 Connect to the daemon on host:port from _params.php_ by **gpsd** protocol via BSD socket or websocket.
 
-## Control
+### Control
 gpsdPROXY daemon checks whether the instance is already running, and exit if it.  
+
+### gpsd Protocol extensions
 Added some new parameters for commands:
 
-* "subscribe":"TPV|AIS" parameter for ?POLL and ?WATCH={"enable":true,"json":true} commands.  
-This indicates to return TPV or AIS data only, not both. For example:  
-?POLL={"subscribe":"AIS"} return class "POLL" with "ais":[], not with "tpv":[].
+* "subscribe":"TPV[,AIS[,ALARM]]" parameter for ?POLL and ?WATCH={"enable":true,"json":true} commands.  
+This indicates to return TPV or AIS or ALARM data only, or a combination of them. Default - all.  
+For example: `?POLL={"subscribe":"AIS"}` return class "POLL" with "ais":[], not with "tpv":[].
 * "minPeriod":"", sec. for WATCH={"enable":true,"json":true} command. Normally the data is sent at the same speed as they come from sensors. Setting this allow get data not more often than after the specified number of seconds. For example:  
 WATCH={"enable":true,"json":true,"minPeriod":"2"} sends data every 2 seconds.
 
-## Configure
-See _params.php_
-
-## Output
+### Output
 The output same as described for **gpsd**, exept:  
 
 * The DEVICES response of the WATCH command include one device only: the daemon self. So no need to merge data from similar devices -- the daemon do it.
 * _sky_ array in POLL object is empty.
-* AIS object missing in WATCH response
+* AIS object missing in WATCH response, instead, this object is sent separately.
 * Added _ais_ array to POLL object and WATCH response with key = mmsi and value as described [AIS DUMP FORMATS](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_ais_dump_formats) section, except:  
 
 >* Speed in m/sec
@@ -77,6 +81,63 @@ The output same as described for **gpsd**, exept:
 >* Length in meters
 >* Beam in meters
 >* No 'second' field, but has 'timestamp' as unix time.
+
+### Typical client code
+```
+webSocket = new WebSocket("ws://"+gpsdProxyHost+":"+gpsdProxyPort);
+
+webSocket.onopen = function(e) {
+	console.log("[spatialWebSocket open] Connection established");
+};
+
+webSocket.onmessage = function(event) {
+	let data;
+
+	data = JSON.parse(event.data);
+
+	switch(data.class){
+	case 'VERSION':
+		console.log('webSocket: Handshaiking with gpsd begin: VERSION recieved. Sending WATCH');
+		webSocket.send('?WATCH={"enable":true,"json":true,"subscribe":"TPV,AIS,ALARM","minPeriod":"0"};');
+		break;
+	case 'DEVICES':
+		console.log('webSocket: Handshaiking with gpsd proceed: DEVICES recieved');
+		break;
+	case 'WATCH':
+		console.log('webSocket: Handshaiking with gpsd complit: WATCH recieved.');
+		break;
+	case 'POLL':
+		break;
+	case 'TPV':
+		realtimeTPVupdate(data);
+		break;
+	case 'AIS':
+		realtimeAISupdate(data);
+		break;
+	case 'ALARM':
+		for(const alarmType in data.alarms){
+			switch(alarmType){
+			case 'MOB':
+				realtimeMOBupdate(data.alarms.MOB);
+				break;
+			case 'collisions':
+				realtimeCollisionsUpdate(data.alarms.collisions);
+				break;
+			}
+		}
+		break;
+	}
+};
+
+webSocket.onclose = function(event) {
+	console.log('webSocket closed: connection broken with code '+event.code+' by reason ${event.reason}');
+};
+
+webSocket.onerror = function(error) {
+	console.log('webSocket error');
+};
+
+```
 
 ## Support
 [Forum](https://github.com/VladimirKalachikhin/Galadriel-map/discussions)
