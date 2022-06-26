@@ -1,6 +1,6 @@
 [Русское описание](https://github.com/VladimirKalachikhin/gpsdPROXY/blob/master/README.ru-RU.md)  
 # gpsdPROXY daemon [![License: CC BY-SA 4.0](https://img.shields.io/badge/License-CC%20BY--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-sa/4.0/)
-**version 0.5**
+**version 0.6**
 
 It is very convenient to access the **[gpsd](https://gpsd.io/)** from web apps with asynchronous request [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) But there are problems:  
 
@@ -16,7 +16,8 @@ But this is a some strange software. Because the same functionality is present a
 I believe that such functionality must be in **gpsd**. But there is no such thing.
 
 As a side, you may use **gpsdPROXY** to collect data from sources that do not have data lifetime control. For example, from VenusOS where there are no instruments data reliability control, or from SignalK, where there it timestamp at least.  
-Or just use **gpsdPROXY** as websocket proxy to **gpsd**.
+Other side effect is storing MOB data and calculate of collision capabilities for AIS targets.  
+But you can just use **gpsdPROXY** as websocket proxy to **gpsd**.
 
 ## Features
 This cache/proxy daemon collect AIS and all TPV data from **gpsd** or other source during the user-defined lifetime and gives them by [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) request of the **gpsd** protocol.  
@@ -41,7 +42,7 @@ The gpsdPROXY can get data from Signal K local or via LAN. If it possible, gpsdP
 Indeed, SignalK can be used from gpsdPROXY only local. Via LAN it's odd.
 
 ### Collision detections
-The gpsdPROXY tries to determine the possibility of a collision according to the adopted collision model based on the specified detection distance and the probability of deviations from the course.  
+The gpsdPROXY tries to determine the possibility of a collision according to the adopted simplified collision model based on the specified detection distance and the probability of deviations from the course.  
 ![collision model](screenshots/s1.jpeg)<br>  
  Object `{"class":"ALARM","alarms":{"collisions":[]}}` contains a list of mmsi and position of vessels that have a risk of collision. The [GaladrielMap](https://github.com/VladimirKalachikhin/Galadriel-map) highlights such vessels on the map and indicates the direction to them on self cursor.
 
@@ -87,7 +88,7 @@ The output same as described for **gpsd**, exept:
 webSocket = new WebSocket("ws://"+gpsdProxyHost+":"+gpsdProxyPort);
 
 webSocket.onopen = function(e) {
-	console.log("[spatialWebSocket open] Connection established");
+	console.log("spatialWebSocket open: Connection established");
 };
 
 webSocket.onmessage = function(event) {

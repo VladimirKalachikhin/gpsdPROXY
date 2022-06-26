@@ -81,12 +81,20 @@ function chkSocks($socket) {
 /**/
 global $dataSourceConnectionObject, $masterSock, $sockets, $socksRead, $socksWrite, $socksError, $messages, $devicePresent,$dataSourceHost,$dataSourcePort,$dataSourceHumanName;
 if($socket == $dataSourceConnectionObject){ 	// умерло соединение с  источником данных
-	echo "\n$dataSourceHumanName socket die. Try to reconnect.\n";
+	echo "$dataSourceHumanName socket die. Try to reconnect.\n";
 	@socket_close($dataSourceConnectionObject); 	// он может быть уже закрыт
 	$dataSourceConnectionObject = createSocketClient($dataSourceHost,$dataSourcePort); 	// Соединение с источником данных
+	if(!$dataSourceConnectionObject) {
+		echo "False open socket to $dataSourceHumanName\n";
+		return;
+	}
 	echo "Socket to $dataSourceHumanName reopen, do handshaking\n";
 	$newDevices = dataSourceConnect($dataSourceConnectionObject);
-	if($newDevices===FALSE) exit("Handshaking fail: $dataSourceHumanName not run, bye     \n");
+	if($newDevices===FALSE) {
+		//exit("Handshaking fail: $dataSourceHumanName not run, bye     \n");
+		echo "Handshaking fail: $dataSourceHumanName not run     \n";
+		return;
+	}
 	
 	echo "Handshaked, will recieve data from $dataSourceHumanName\n";
 	if(!$devicePresent) echo"but no required devices present     \n";
@@ -514,10 +522,10 @@ if($pollWatchExist){	// есть режим WATCH, надо подготовит
 					$messages[$socket]['output'][] = $WATCH;
 					break;
 				case "AIS":
-				$messages[$socket]['output'][] = $ais;
+					$messages[$socket]['output'][] = $ais;
 					break;
 				case "ALARM":
-				$messages[$socket]['output'][] = $ALARM;
+					$messages[$socket]['output'][] = $ALARM;
 					break;
 				}
 			}
@@ -911,7 +919,7 @@ if($instrumentsData['AIS']) {
 		//$data['data']["class"] = "AIS"; 	// вроде бы, тут не надо?...
 		$data['data']["timestamp"] = $data["timestamp"];		
 		$ais[$data['data']['mmsi']] = $data['data'];
-		$ais[$data['data']['mmsi']]['collisionArea'] = $data['collisionArea'];	///////// for collision test purpose /////////
+		//$ais[$data['data']['mmsi']]['collisionArea'] = $data['collisionArea'];	///////// for collision test purpose /////////
 	}
 }
 return $ais;
@@ -981,11 +989,11 @@ if($instrumentsData['TPV']){
 			$lasts[$type] = $data['cachedTime'][$type];
 		}
 	}
-	///////// for collision test purpose /////////
+	/*//////// for collision test purpose /////////
 	global $boatInfo;
 	$WATCH['collisionArea'] = $boatInfo['collisionArea'];	
 	$WATCH['collisionSegments'] = $instrumentsData['ALARM']['collisionSegments'];	
-	///////// for collision test purpose /////////
+	///////// for collision test purpose ////////*/
 }
 //print_r($times);
 if($times) $WATCH['time'] = date(DATE_ATOM,min($times));	// могут быть присланы левые значения времени, или не присланы совсем

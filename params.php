@@ -90,7 +90,7 @@ If service will not present on localhost will be attempt to find service in LAN 
 // Отключение от gpsd
 // Freeing gpsd
 // Время, сек., через которое происходит отключение от gpsd при отсутствии клиентов. gpsd отключит датчики
-$noClientTimeout = 90;	// sec., disconnect from gpsd on no any client present
+$noClientTimeout = 3;	// sec., disconnect from gpsd on no any client present
 
 // Параметры сохранения кеша
 // Cache backup parms

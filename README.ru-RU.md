@@ -1,6 +1,6 @@
 [In English](https://github.com/VladimirKalachikhin/gpsdPROXY/blob/master/README.md)  
 # gpsdPROXY daemon [![License: CC BY-SA 4.0](https://img.shields.io/badge/License-CC%20BY--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-sa/4.0/)
-**version 0.5**  
+**version 0.6**  
 
 Весьма удобно обращаться к **[gpsd](https://gpsd.io/)** из веб-приложений посредством команды [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) в произвольный момент времени, однако есть проблемы:
   
@@ -15,16 +15,14 @@
 Однако надо заметить, что **gpsdPROXY** довольно странная программа, потому что она, в общем, делает ровно то же самое, что и собственно **gpsd**: собирает данные из потока, агрегирует их и отдаёт структурированные данные по требованию. Разница во времени жизни данных. В **gpsdPROXY** его можно задавать явным образом для каждого типа данных.
 Думаю, что такая функциональность должна быть непосредственно в **gpsd**. Но этого нет.  
 Зато можно применить **gpsdPROXY** для сбора данных от источников, в которых нет контроля достоверности данных. Например, от VenusOS, где нет совсем никакого контроля, и от SignalK, где есть хотя бы метка времени.
-Или просто использовать **gpsdPROXY** как websocket интерфейс к **gpsd**.
+Или просто использовать **gpsdPROXY** как websocket интерфейс к **gpsd**.  
+Дополнительно **gpsdPROXY** может получать и потом раздавать клиентам информацию "Человек за бортом", а также определять возможность столкновения с целями AIS.
 
 ## Возможности
 Предлагаемый демон собирает данные AIS и всё то, что передаётся **gpsd** в секции TPV и хранит их в течение указанного пользователем времени. Получить данные можно запросом [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) протокола **gpsd**.  
 Таким образом, все данные AIS и данные эхолота и анемометра (и ГПС, конечно) становятся доступными в произвольный момент времени.
 
 Дополнительно реализован и синхронная потоковая отдача данных, аналогичная режиму ?WATCH={"enable":true,"json":true} **gpsd**. 
-
-## Требования
-mbstring
 
 ### Источники данных
 Основным источником данных для gpsdPROXY является **gpsd**, запущенный на той же или другой машине. При использовании **gpsd** обеспечивается максимальная достоверность данных.  
@@ -43,7 +41,16 @@ gpsdPROXY может работать под управлением VenusOS по
 gpsdPROXY может получать данные от сервиса Signal K, работающего на той же машине, или в локальной сети. gpsdPROXY предпримет попытку самостоятельно найти Signal K посредством zeroconf, или обращаясь на стандартный порт. Но лучше сконфигурировать.
 
 ##### Ограничения
-На самом деле gpsdPROXY к SignalK должен обращаться только локально. Через сеть -- оно странное.
+На самом деле gpsdPROXY к SignalK должен обращаться только локально. Через сеть -- оно странное.  
+
+### Обнаружение столкновений
+**gpsdPROXY** определяет возможность столкновений с целями AIS, а зависимости от их и от собственной скорости и указанного времени до события.  
+![collision model](screenshots/s1.jpeg)<br>  
+Возможность столкновения вычисляется в соответствии с примитивной моделью движения, учитывающей, фактически, только возможные отклонения от курса. Однако ожидается, что эти вычисления не должны критически загрузить сервер даже при большом количестве целей AIS.  
+Объект ``{"class":"ALARM","alarms":{"collisions":[]}}` содержит список mmsi и координат потенциально опасных судов. [GaladrielMap](https://vladimirkalachikhin.github.io/Galadriel-map/README.ru-RU) обозначает такие объекты на карте специальным значком, а у курсора собственного положения рисует стрелочки с направлением на опасный объект.
+
+## Настройка
+См. файл _params.php_
 
 ## Использование
 ```
@@ -61,16 +68,12 @@ $ php gpsdPROXY.php
 * параметр "minPeriod":"", в сек. для команды WATCH={"enable":true,"json":true}. Нормально данные отсылаются так часто, как они приходят от **gpsd**. Указание этого параметра заставляет демон отсылать данные не чаще указанного количества секунд. Например, команда:  
 WATCH={"enable":true,"json":true,"minPeriod":"2"} посылает данные каждые две секунды, или реже, по мере получения данных.
 
-
-## Настройка
-См. файл _params.php_
-
 ## Результат
 Демон возвращает данные, как описано в документации к **gpsd**, за исключением:  
 
 * ответ DEVICES на команду WATCH содержит только одно устройство -- сам демон. Как следствие -- не надо объединять сходные данные от разных устройств: это уже делает демон.
 * массив _sky_ в объекте POLL пуст
-* объект AIS отсутствует в ответе команды WATCH
+* объект AIS отсутствует в ответе команды WATCH, вместо этого посылается отдельный объект
 * в объект POLL и ответ команды WATCH добавлен массив _ais_  с ключами mmsi и данными в формате, описанном в [AIS DUMP FORMATS](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_ais_dump_formats), за исключением:
 
 >* скорость в м/сек
@@ -79,7 +82,65 @@ WATCH={"enable":true,"json":true,"minPeriod":"2"} посылает данные 
 >* осадка в метрах
 >* длина в метрах
 >* ширина в метрах
->* поле 'second' отсутствует, но есть поле 'timestamp' с временем unix
+>* поле 'second' отсутствует, но есть поле 'timestamp' с временем unix  
+
+### Пример клиентского кода
+```
+webSocket = new WebSocket("ws://"+gpsdProxyHost+":"+gpsdProxyPort);
+
+webSocket.onopen = function(e) {
+	console.log("spatialWebSocket open: Connection established");
+};
+
+webSocket.onmessage = function(event) {
+	let data;
+
+	data = JSON.parse(event.data);
+
+	switch(data.class){
+	case 'VERSION':
+		console.log('webSocket: Handshaiking with gpsd begin: VERSION recieved. Sending WATCH');
+		webSocket.send('?WATCH={"enable":true,"json":true,"subscribe":"TPV,AIS,ALARM","minPeriod":"0"};');
+		break;
+	case 'DEVICES':
+		console.log('webSocket: Handshaiking with gpsd proceed: DEVICES recieved');
+		break;
+	case 'WATCH':
+		console.log('webSocket: Handshaiking with gpsd complit: WATCH recieved.');
+		break;
+	case 'POLL':
+		break;
+	case 'TPV':
+		realtimeTPVupdate(data);
+		break;
+	case 'AIS':
+		realtimeAISupdate(data);
+		break;
+	case 'ALARM':
+		for(const alarmType in data.alarms){
+			switch(alarmType){
+			case 'MOB':
+				realtimeMOBupdate(data.alarms.MOB);
+				break;
+			case 'collisions':
+				realtimeCollisionsUpdate(data.alarms.collisions);
+				break;
+			}
+		}
+		break;
+	}
+};
+
+webSocket.onclose = function(event) {
+	console.log('webSocket closed: connection broken with code '+event.code+' by reason ${event.reason}');
+};
+
+webSocket.onerror = function(error) {
+	console.log('webSocket error');
+};
+
+```
+
 
 ## Поддержка
 [Форум](https://github.com/VladimirKalachikhin/Galadriel-map/discussions)

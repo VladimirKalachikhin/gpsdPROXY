@@ -12,7 +12,6 @@ $instrumentsDataUpdated = array(); // массив, где указано, ка�
 
 //echo "chkCollisions instrumentsData['AIS']:"; print_r($instrumentsData['AIS']); echo "\n";
 if(!$instrumentsData['TPV']) return $instrumentsDataUpdated;
-if(!$instrumentsData['AIS']) return $instrumentsDataUpdated;
 
 // Определим свежие координаты, курс и скорость себя
 // последние данные от какого-нибудь устройства, заведомо актуальные
@@ -51,19 +50,20 @@ foreach($instrumentsData['TPV'] as $device => $data){
 		}
 	}
 }
-if(!$boatInfo['lat'] or !$boatInfo['lon']) return $instrumentsDataUpdated;
-list($boatInfo['collisionArea'],$boatInfo['squareArea']) = updCollisionArea($boatInfo,$collisionDistance);	// 
-//echo "chkCollisions self boatInfo:"; print_r($boatInfo); echo "\n";
 
 $wasCollissions = @count($instrumentsData['ALARM']['collisions']);	// было опасностей может не быть
 $instrumentsData['ALARM']['collisions'] = array();
-$instrumentsData['ALARM']['collisionSegments'] = array();	///////// for collision test purpose /////////
-foreach($instrumentsData['AIS'] as $id => $vehicle){	// для каждого судна из AIS
-	if(!$vehicle['data']['lat'] or !$vehicle['data']['lon']) continue;
-	if(chkCollision($id)) {	// проверим возможность столкновения
-		$instrumentsData['ALARM']['collisions'][$id] = array('lat'=>$vehicle['data']['lat'],'lon'=>$vehicle['data']['lon']);
-		$instrumentsDataUpdated = array('ALARM' => true);
-		//echo "\n Collision with $id\n";
+if($boatInfo['lat'] and $boatInfo['lon']) {	// координаты себя могут исчезнуть, тогда и нет коллизий, но они, возможно, были
+	list($boatInfo['collisionArea'],$boatInfo['squareArea']) = updCollisionArea($boatInfo,$collisionDistance);	// 
+	//echo "chkCollisions self boatInfo:"; print_r($boatInfo); echo "\n";
+	//$instrumentsData['ALARM']['collisionSegments'] = array();	///////// for collision test purpose /////////
+	foreach($instrumentsData['AIS'] as $id => $vehicle){	// для каждого судна из AIS
+		if(!$vehicle['data']['lat'] or !$vehicle['data']['lon']) continue;
+		if(chkCollision($id)) {	// проверим возможность столкновения
+			$instrumentsData['ALARM']['collisions'][$id] = array('lat'=>$vehicle['data']['lat'],'lon'=>$vehicle['data']['lon']);
+			$instrumentsDataUpdated = array('ALARM' => true);
+			//echo "\n Collision with $id\n";
+		}
 	}
 }
 if(!$instrumentsDataUpdated and $wasCollissions) $instrumentsDataUpdated = array('ALARM' => true);	// опасностей было, но не стало -- надо сообщить
@@ -97,7 +97,7 @@ $unitedSquareArea = array(
 		'lat'=>min($instrumentsData['AIS'][$vesselID]['squareArea']['bottomRight']['lat'],$boatInfo['squareArea']['bottomRight']['lat'])
 	)
 );
-$instrumentsData['ALARM']['collisionSegments']['unitedSquareAreas'][] = $unitedSquareArea;	///////// for collision test purpose /////////
+//$instrumentsData['ALARM']['collisionSegments']['unitedSquareAreas'][] = $unitedSquareArea;	///////// for collision test purpose /////////
 
 // Пересчитаем координаты точек collisionArea относительно общего прямоугольника,
 // от верхнего левого угла, в метрах
@@ -125,9 +125,9 @@ for($i=0; $i<$lenI; $i++){	// для каждого отрезка своей о
 		if($nextJ==$lenJ) $nextJ = 0;
 		if(segmentIntersection($selfLocalCollisionArea[$i],$selfLocalCollisionArea[$nextI],$targetLocalCollisionArea[$j],$targetLocalCollisionArea[$nextJ])){	// две точки первого отрезка, две точки второго отрезка fGeometry.php
 			$isIntersection = true;
-			///////// for collision test purpose /////////
+			/*//////// for collision test purpose /////////
 			$instrumentsData['ALARM']['collisionSegments']['intersections'][$vesselID][] = array(array($boatInfo['collisionArea'][$i],$boatInfo['collisionArea'][$nextI]),array($instrumentsData['AIS'][$vesselID]['collisionArea'][$j],$instrumentsData['AIS'][$vesselID]['collisionArea'][$nextJ]));	
-			///////// for collision test purpose /////////
+			///////// for collision test purpose ////////*/
 			break 2;
 		}
 	}
