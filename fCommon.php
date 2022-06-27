@@ -81,7 +81,7 @@ function chkSocks($socket) {
 /**/
 global $dataSourceConnectionObject, $masterSock, $sockets, $socksRead, $socksWrite, $socksError, $messages, $devicePresent,$dataSourceHost,$dataSourcePort,$dataSourceHumanName;
 if($socket == $dataSourceConnectionObject){ 	// умерло соединение с  источником данных
-	echo "$dataSourceHumanName socket die. Try to reconnect.\n";
+	echo "$dataSourceHumanName socket closed. Try to recreate.\n";
 	@socket_close($dataSourceConnectionObject); 	// он может быть уже закрыт
 	$dataSourceConnectionObject = createSocketClient($dataSourceHost,$dataSourcePort); 	// Соединение с источником данных
 	if(!$dataSourceConnectionObject) {
@@ -561,7 +561,7 @@ Array
 {"class":"AIS","device":"tcp://localhost:2222","type":1,"repeat":0,"mmsi":244660492,"scaled":false,"status":0,"status_text":"Under way using engine","turn":-128,"speed":0,"accuracy":true,"lon":3424893,"lat":31703105,"course":0,"heading":511,"second":25,"maneuver":0,"raim":true,"radio":81955}
 
 */
-global $instrumentsData,$gpsdProxyTimeouts,$collisionDistance;
+global $instrumentsData,$gpsdProxyTimeouts,$collisionDistance,$dataUpdated;
 $instrumentsDataUpdated = array(); // массив, где указано, какие классы изменениы и кем.
 $now = time();
 //echo "\ninInstrumentsData="; print_r($inInstrumentsData);echo"\n";
@@ -800,7 +800,9 @@ $instrumentsDataUpdated = array_merge($instrumentsDataUpdated,chkFreshOfData());
 // при каждом поступлении любых данных?
 $instrumentsDataUpdated = array_merge($instrumentsDataUpdated,chkCollisions());	
 
-//echo "\n gpsdDataUpdated\n"; print_r($instrumentsDataUpdated);
+$dataUpdated = time();	// Обозначим когда данные были обновлены
+
+//echo "\n Data Updated: "; print_r($instrumentsDataUpdated);
 //echo "\n instrumentsData\n"; print_r($instrumentsData);
 //echo "\n instrumentsData AIS\n"; print_r($instrumentsData['AIS']);
 return $instrumentsDataUpdated;
@@ -928,7 +930,7 @@ return $ais;
 function makePOLL($subscribes=array()){
 /* Из глобального $instrumentsData формирует массив ответа на ?POLL протокола gpsd
 */
-global $instrumentsData;
+global $instrumentsData,$dataUpdated,$minSocketTimeout;
 
 $POLL = array(	// данные для передачи клиенту как POLL, в формате gpsd
 	"class" => "POLL",
@@ -937,6 +939,10 @@ $POLL = array(	// данные для передачи клиенту как POL
 	"tpv" => array(),
 	"sky" => array(),	// обязательно по спецификации, пусто
 );
+if((time()-$dataUpdated)>=$minSocketTimeout){	// давно не получали данных
+	//echo "POLL: данные были получены ".(time()-$dataUpdated)." сек. назад.                   \n";
+	updAndPrepare();	// проверим кеш на предмет протухших данных
+}
 //echo "\n instrumentsData\n"; print_r($instrumentsData['TPV']);
 foreach($subscribes as $subscribe=>$v){
 	switch($subscribe){

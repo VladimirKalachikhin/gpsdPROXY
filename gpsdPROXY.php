@@ -23,7 +23,7 @@ $ cgps localhost:3838
 $ telnet localhost 3838
 */
 /*
-Version 0.6.0
+Version 0.6.1
 
 0.6.0	add collision detections
 0.5.1	add Signal K data source
@@ -52,7 +52,6 @@ if(!$instrumentsData) $instrumentsData = array();
 // Переменные
 $lastBackupSaved = 0;	// время последнего сохранения кеша
 $lastClientExchange = 0;	// время последней коммуникации какого-нибудь клиента
-$lastServerExchange = 0;	// время последней коммуникации с источником данных
 
 $greeting = '{"class":"VERSION","release":"gpsdPROXY_0","rev":"beta","proto_major":3,"proto_minor":0}';
 $SEEN_GPS = 0x01; $SEEN_AIS = 0x08;
@@ -132,7 +131,7 @@ $messages = array(); 	//
 */
 $dataSourceZeroCNT = 0;	// счётчик пустых строк, пришедших подряд от источника данных
 $lastTryToDataSocket = 0;	// момент последней попытки поднять основной источник данных
-$tryToDataSocketInterval = 10;	// будем пытаться поднять основной источник данных каждые столько сек.
+$dataUpdated = 0;	// время последней коммуникации с источником данных, чтобы проверять свежесть данных не при каждом POLL
 
 $socksRead = array(); $socksWrite = array(); $socksError = array(); 	// массивы для изменивших состояние сокетов (с учётом, что они в socket_select() по ссылке, и NULL прямо указать нельзя)
 echo "gpsdPROXY ready to connection on $gpsdProxyHost:$gpsdProxyPort\n";
@@ -140,14 +139,14 @@ do {
 	//$startTime = microtime(TRUE);
 	//echo "gpsdSock type=".gettype($dataSourceConnectionObject).";\n";
 	//echo "\nsockets:\n"; print_r($sockets);
-	$SocketTimeout = null;
+	$SocketTimeout = $minSocketTimeout;	// сделаем, чтобы основной цикл не стоял вечно, для проверки протухания
 	
 	// Если нет основного источника данных, и пора попытаться его поднять.
-	// чтобы не пытаться его поднять каждый оборот
 	//echo "\ndataSourceConnectionObject=$dataSourceConnectionObject; time()-lastTryToDataSocket=".(time()-$lastTryToDataSocket)."\n";
-	if(!$dataSourceConnectionObject or gettype($dataSourceConnectionObject)==='resource (closed)'){
-		$SocketTimeout = $tryToDataSocketInterval;	// сделаем, чтобы основной цикл не стоял вечно
-		if((time()-$lastTryToDataSocket)>=$tryToDataSocketInterval){
+	//if(!$dataSourceConnectionObject or gettype($dataSourceConnectionObject)==='resource (closed)'){
+	
+	if(!$dataSourceConnectionObject){
+		if((time()-$lastTryToDataSocket)>=$SocketTimeout){	// чтобы не каждый оборот, иначе никакакой handshaking никогда не завершится
 			echo "\nNo main data source. Trying to reopen.    \n";
 			chkSocks($dataSourceConnectionObject);	// а как ещё узнать, что сокет закрыт? Массив error socket_select не помогает.
 			if(!$dataSourceConnectionObject){
@@ -155,19 +154,22 @@ do {
 				if($res) list($dataSourceHost,$dataSourcePort,$requireFile) = $res;
 			}
 			$lastTryToDataSocket = time();
-			if($dataSourceConnectionObject) $SocketTimeout = null;
-			else echo "The reopening of the main data source failed. I'll try it later.\n";
+			if(!$dataSourceConnectionObject) echo "The reopening of the main data source failed. I'll try it later.\n";
 		}
 	}
-
+	
 	$socksRead = $sockets; 	// мы собираемся читать все сокеты
 	$socksRead[] = $masterSock; 	// 
 	if($sockets) {	// есть, возможно, клиенты, включая тех, кто с CONNECT и UPDATE
-		if(gettype($dataSourceConnectionObject)==='resource'){	// 
+		if(gettype($dataSourceConnectionObject)==='resource (closed)') {	// главный источник есть, но мы его ранее закрыли
+			chkSocks($dataSourceConnectionObject);	// 
+			//echo "\nПереоткрыли главный сокет, gettype(dataSourceConnectionObject)=".gettype($dataSourceConnectionObject)."\n";
+		}
+		if(gettype($dataSourceConnectionObject)==='resource'){	// главный источник данных в порядке
 			$socksRead[] = $dataSourceConnectionObject; 	// есть клиенты -- нам нужно соединение с источником данных
 			$socksError[] = $dataSourceConnectionObject; 	// 
 			$info = " and $dataSourceHumanName";
-		}
+		}	// иначе $dataSourceConnectionObject == null, и через оборот по таймауту снова будет предпринята попытка открыть главный источник данных
 	}
 	else {	// клиентов нет -- можно закрыть соединеие с источником данных, чтобы он заснул приёмник гпс.
 		if((time()-$lastClientExchange)>=$noClientTimeout){
@@ -196,7 +198,6 @@ do {
 		// в altReadData вызывается updAndPrepare, так что больше с этим ничего не надо делать 
 		if( altReadData($dataSourceConnectionObject) ) {
 			$SocketTimeout = 0;	// если данные были получены слева, их надо обработать, поэтому отключим ожидание чтения сокета
-			$lastServerExchange = time();
 		}
 	}
 	//echo "\n pollWatchExist="; print_r($pollWatchExist); echo "minSocketTimeout=$minSocketTimeout; SocketTimeout=$SocketTimeout;        \n";
@@ -211,7 +212,13 @@ do {
 		echo "socket_select: Error on sockets: " . socket_strerror(socket_last_error()) . "\n";
 		foreach($socksError as $socket){
 			chkSocks($socket);
+			unset($socket);
 		}
+	}
+	elseif($num_changed_sockets === 0) {	// оборот по таймауту
+		//echo "\nLoop by timeout. SocketTimeout=$SocketTimeout;\n";
+		updAndPrepare();	// проверим кеш на предмет протухших данных
+		continue;	// оборот основного цикла, ведь больше ничего не произошло
 	}
 
 	//echo "\n Пишем в сокеты ".count($socksWrite)."\n"; //////////////////
@@ -242,6 +249,7 @@ do {
 			elseif($res <> $msgLen){	// клиент не принял всё. У него проблемы?
 				echo "\n\nNot all data was writed to socket $socket by: " . socket_strerror(socket_last_error($sock)) . "\n";
 				chkSocks($socket);
+				unset($socket);
 				continue 3;	// к следующему сокету
 			}
 			$lastClientExchange = time();
@@ -302,11 +310,10 @@ do {
 			//if(!in_array($inInstrumentsData['device'],$devicePresent)) {  	// это не то устройство, которое потребовали
 			//	continue;
 			//}
-			//echo "\n inInstrumentsData\n"; print_r($inInstrumentsData);
+			//echo "\nИз основного источника inInstrumentsData:\n"; print_r($inInstrumentsData);
 			// Ok, мы получили требуемое
 			updAndPrepare($inInstrumentsData); // обновим кеш и отправим данные для режима WATCH
 			//echo "\n gpsdData\n"; print_r($instrumentsData);
-			$lastServerExchange = time();
 			continue; 	// к следующему сокету
 		}
 		
@@ -336,6 +343,7 @@ do {
 			default:
 				echo "Failed to read data from socket #$sockKey $socket by: " . socket_strerror(socket_last_error($socket)) . "                                 \n"; 	// в общем-то -- обычное дело. Клиент закрывает соединение, мы об этом узнаём при попытке чтения. Если $sockKey == false, то это сокет к gpsd.
 				chkSocks($socket);
+				unset($socket);
 			}
 		    continue;	// к следующему сокету
 		}
@@ -348,6 +356,7 @@ do {
 		if($messages[$sockKey]['zerocnt']>10){
 			echo "\n\nTo many empty strings from client socket #$sockKey $socket \n"; 	// бывает, клиент умер, а сокет -- нет. Тогда из него читается пусто.
 			chkSocks($socket);
+			unset($socket);
 		    continue;	// к следующему сокету
 		}
 		//echo "\nПРИНЯТО ОТ КЛИЕНТА # $sockKey $socket ".mb_strlen($buf,'8bit')." байт\n";
@@ -357,7 +366,6 @@ do {
 			//echo "\n inInstrumentsData from other \n"; print_r($inInstrumentsData);
 			updAndPrepare($inInstrumentsData); // обновим кеш и отправим данные для режима WATCH
 			//echo "\n gpsdData\n"; print_r($instrumentsData);
-			$lastServerExchange = time();
 			continue; 	// к следующему сокету
 		}
 		if($messages[$sockKey]['greeting']===TRUE){ 	// с этим сокетом уже беседуем, значит -- пришли данные	
@@ -382,6 +390,7 @@ do {
 					if($res == FALSE){
 						//echo "Bufer decode fails, will close websocket\n";
 						chkSocks($socket);	// закроет сокет
+						unset($socket);
 						continue 3;	// к следующему сокету						
 					}
 					else list($decodedData,$type,$FIN,$tail) = $res;
@@ -425,6 +434,7 @@ do {
 						case 'close':
 							//echo "От клиента принято требование закрыть соединение.    \n";
 							chkSocks($socket);	// закроет сокет
+							unset($socket);
 							continue 5;	// к следующему сокету
 						case 'ping':	// An endpoint MAY send a Ping frame any time after the connection is    established and before the connection is closed.
 						case 'pong':
@@ -434,6 +444,7 @@ do {
 							if($decodedData === null){
 								echo "Frame decode fails, will close websocket\n";
 								chkSocks($socket);	// закроет сокет
+								unset($socket);
 								continue 5;	// к следующему сокету
 							}
 						}
@@ -541,10 +552,6 @@ do {
 						$messages[$sockKey]['minPeriod'] = @$params['minPeriod'];
 						$messages[$sockKey]['subscribe'] = $params['subscribe'];
 						// Сразу отправим ему все уже существующие данные в соответствии с его подпиской
-						if((time()-$lastServerExchange)>=$minSocketTimeout){	// давно не получали данных
-							//echo "WATCH: данные были получены ".(time()-$lastServerExchange)." сек. назад.                   \n";
-							updAndPrepare();	// проверим кеш на предмет протухших данных
-						}
 						foreach($messages[$sockKey]['subscribe'] as $subscribe=>$v){
 							$pollWatchExist[$subscribe] = TRUE;	// отметим, что есть сокет с режимом WATCH и некоторой подпиской
 							switch($subscribe){
@@ -578,16 +585,13 @@ do {
 					else {
 						//echo "Socket to client close by command from client             \n";
 						chkSocks($socket);	// просто закроем сокет
+						unset($socket);
 					}
 				}
 				break;
 			case 'POLL':
 				if(!$messages[$sockKey]['POLL']) continue 2; 	// на POLL будем отзываться только после ?WATCH={"enable":true}
 				$POLL = makePOLL($params['subscribe']);	// подготовим данные в соответствии с подпиской
-				if((time()-$lastServerExchange)>=$minSocketTimeout){	// давно не получали данных
-					//echo "POLL: данные были получены ".(time()-$lastServerExchange)." сек. назад.                   \n";
-					updAndPrepare();	// проверим кеш на предмет протухших данных
-				}
 				$messages[$sockKey]['output'][] = json_encode($POLL)."\r\n\r\n"; 	// будем копить сообщения, вдруг клиент не готов их принять
 				unset($POLL);
 				break;
@@ -610,7 +614,6 @@ do {
 				//echo "\n UPDATE #$sockKey $socket \n"; 
 				//print_r($params); echo "\n";
 				updAndPrepare($params['updates'],$sockKey); // обновим кеш и отправим данные для режима WATCH
-				$lastServerExchange = time();
 				break;
 			}
 		}
