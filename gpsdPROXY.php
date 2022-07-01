@@ -23,7 +23,7 @@ $ cgps localhost:3838
 $ telnet localhost 3838
 */
 /*
-Version 0.6.2
+Version 0.6.3
 
 0.6.0	add collision detections
 0.5.1	add Signal K data source
@@ -541,6 +541,7 @@ do {
 			$params = trim($params);
 			//echo "\n\nRecieved command from Client #$sockKey $socket command=$command; params=$params;\n";
 			if($params) $params = json_decode($params,TRUE);
+			else $params = array();
 			// Обработаем команду
 			if(@$params['subscribe']) {	// в результате $params всегда есть.
 				$params['subscribe'] = array_fill_keys(explode(',',$params['subscribe']),TRUE);
