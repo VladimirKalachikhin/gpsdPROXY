@@ -50,7 +50,7 @@ $gpsdProxyTimeouts = array(  	// время в секундах после по�
 // Vehacle description
 // If netAIS is used -- specify its configuration file, otherwise -- specify the necessary here.
 // The information from the netAIS configuration file has an advantage.
-$netAISconfig = '../netAIS/boatInfo.ini';
+$netAISconfig = '../../netAIS/boatInfo.ini';
 $boatInfo = array();
 /*
 $boatInfo = array(

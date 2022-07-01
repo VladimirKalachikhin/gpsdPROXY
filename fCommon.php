@@ -81,7 +81,7 @@ function chkSocks($socket) {
 /**/
 global $dataSourceConnectionObject, $masterSock, $sockets, $socksRead, $socksWrite, $socksError, $messages, $devicePresent,$dataSourceHost,$dataSourcePort,$dataSourceHumanName;
 if($socket == $dataSourceConnectionObject){ 	// умерло соединение с  источником данных
-	echo "$dataSourceHumanName socket closed. Try to recreate.\n";
+	echo "\n$dataSourceHumanName socket closed. Try to recreate.\n";
 	@socket_close($dataSourceConnectionObject); 	// он может быть уже закрыт
 	$dataSourceConnectionObject = createSocketClient($dataSourceHost,$dataSourcePort); 	// Соединение с источником данных
 	if(!$dataSourceConnectionObject) {

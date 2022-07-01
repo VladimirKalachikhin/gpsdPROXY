@@ -12,6 +12,7 @@ $instrumentsDataUpdated = array(); // массив, где указано, ка�
 
 //echo "chkCollisions instrumentsData['AIS']:"; print_r($instrumentsData['AIS']); echo "\n";
 if(!$instrumentsData['TPV']) return $instrumentsDataUpdated;
+if(!$instrumentsData['AIS']) return $instrumentsDataUpdated;
 
 // Определим свежие координаты, курс и скорость себя
 // последние данные от какого-нибудь устройства, заведомо актуальные
@@ -23,17 +24,17 @@ foreach($instrumentsData['TPV'] as $device => $data){
 	foreach($data['cachedTime'] as $type => $cachedTime){
 		switch($type){
 		case 'lat':
-			if($freshPtime > $cachedTime) continue;
+			if($freshPtime > $cachedTime) continue 2;
 			$freshPtime = $cachedTime;
 			$boatInfo['lat'] = $data['data'][$type];
 			break;
 		case 'lon':
-			if($freshPtime > $cachedTime) continue;
+			if($freshPtime > $cachedTime) continue 2;
 			$freshPtime = $cachedTime;
 			$boatInfo['lon'] = $data['data'][$type];
 			break;
 		case 'track':
-			if($freshTtime > $cachedTime) continue;
+			if($freshTtime > $cachedTime) continue 2;
 			$freshTtime = $cachedTime;
 			$boatInfo['track'] = $data['data'][$type];
 			$boatInfo['course'] = $data['data'][$type];	// в AIS оно course, так что для совместимости
@@ -41,12 +42,12 @@ foreach($instrumentsData['TPV'] as $device => $data){
 			break;
 		case 'speed':
 			//echo "\nspeed={$data['data'][$type]}\n";
-			if($freshVtime > $cachedTime) continue;
+			if($freshVtime > $cachedTime) continue 2;
 			$freshVtime = $cachedTime;
 			$boatInfo['speed'] = $data['data'][$type];
 			break;
 		default:
-			continue;
+			continue 2;
 		}
 	}
 }

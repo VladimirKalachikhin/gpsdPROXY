@@ -23,7 +23,7 @@ $ cgps localhost:3838
 $ telnet localhost 3838
 */
 /*
-Version 0.6.1
+Version 0.6.2
 
 0.6.0	add collision detections
 0.5.1	add Signal K data source
@@ -78,7 +78,10 @@ if($minSocketTimeout == 86400) $minSocketTimeout = 10;
 if($netAISconfig) {	// params.php
 	$saveBoatInfo = $boatInfo;	// params.php
 	$boatInfo = parse_ini_file($netAISconfig,FALSE,INI_SCANNER_TYPED);
-	if(!$boatInfo) $boatInfo = $saveBoatInfo;
+	if($boatInfo===false) {
+		echo "\nFound netAISconfig parm in params.php, but loading netAIS boatInfo.ini false.\n";
+		$boatInfo = $saveBoatInfo;
+	}
 	else {
 		if(!$boatInfo['length']) $boatInfo['length'] = $saveBoatInfo['length'];
 		if(!$boatInfo['beam']) $boatInfo['beam'] = $saveBoatInfo['beam'];
