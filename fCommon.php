@@ -118,7 +118,7 @@ else {
 	$n = array_search($socket,$socksWrite);	// 
 	if($n !== FALSE) unset($socksWrite[$n]);
 	$n = array_search($socket,$socksError);	// 
-	if($n !== FALSE) phpunset($socksError[$n]);
+	if($n !== FALSE) unset($socksError[$n]);
 	@socket_close($socket); 	// он может быть уже закрыт
 }
 //echo "\nchkSocks sockets: "; print_r($sockets);

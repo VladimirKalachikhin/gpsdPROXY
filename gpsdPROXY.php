@@ -23,7 +23,7 @@ $ cgps localhost:3838
 $ telnet localhost 3838
 */
 /*
-Version 0.6.3
+Version 0.6.4
 
 0.6.0	add collision detections
 0.5.1	add Signal K data source
