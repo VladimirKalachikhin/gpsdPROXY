@@ -661,7 +661,8 @@ if(!$psList) { 	// for OpenWRT. For others -- let's hope so all run from one use
 $run = FALSE;
 foreach($psList as $str) {
 	if(strpos($str,(string)$pid)!==FALSE) continue;
-	if((strpos($str,'sh')!==FALSE) or (strpos($str,'bash')!==FALSE) or (strpos($str,'ps')!==FALSE) or (strpos($str,'grep')!==FALSE)) continue;
+	//echo "$str\n";
+	if((strpos($str,'sh ')!==FALSE) or (strpos($str,'bash ')!==FALSE) or (strpos($str,'ps ')!==FALSE) or (strpos($str,'grep ')!==FALSE)) continue;
 	if((strpos($str,"$phpCLIexec ")!==FALSE) and (strpos($str,$toFind)!==FALSE)){
 		$run=TRUE;
 		break;
