@@ -23,8 +23,9 @@ $ cgps localhost:3838
 $ telnet localhost 3838
 */
 /*
-Version 0.6.4
+Version 0.6.5
 
+0.6.5	restart by cron
 0.6.0	add collision detections
 0.5.1	add Signal K data source
 0.5.0	rewritten to module structure and add VenusOS data source. Used https://github.com/bluerhinos/phpMQTT with big changes.
@@ -120,6 +121,9 @@ if($devicePresent===FALSE) exit("Handshaking fail: $dataSourceHumanName on $data
 echo "Handshaked, will recieve data from $dataSourceHumanName\n";
 if(!$devicePresent) echo"but no required devices present     \n";
 
+// После того, как стало понятно, что всё нормально, удалим себя из cron
+exec("crontab -l | grep -v '".__FILE__."'  | crontab -"); 	
+
 $messages = array(); 	// 
 /*$messages: массив "номер сокета в массиве $sockets" => "массив [
 'output'=> array(сообщений), // сообщения для отправки через этот сокет на следующем обороте
@@ -145,6 +149,7 @@ do {
 	$SocketTimeout = $minSocketTimeout;	// сделаем, чтобы основной цикл не стоял вечно, для проверки протухания
 	
 	// Если нет основного источника данных, и пора попытаться его поднять.
+	// он закрывается в chkSocks, и потом делается попытка его открыть. При неудаче $dataSourceConnectionObject будет false.
 	//echo "\ndataSourceConnectionObject=$dataSourceConnectionObject; time()-lastTryToDataSocket=".(time()-$lastTryToDataSocket)."\n";
 	//if(!$dataSourceConnectionObject or gettype($dataSourceConnectionObject)==='resource (closed)'){
 	
@@ -153,8 +158,13 @@ do {
 			echo "\nNo main data source. Trying to reopen.    \n";
 			chkSocks($dataSourceConnectionObject);	// а как ещё узнать, что сокет закрыт? Массив error socket_select не помогает.
 			if(!$dataSourceConnectionObject){
-				$res = findSource($dataSourceType,$dataSourceHost,$dataSourcePort); // Определим, к кому подключаться для получения данных
-				if($res) list($dataSourceHost,$dataSourcePort,$requireFile) = $res;
+				// Определим, к кому подключаться для получения данных
+				// однако, функции в PHP переопределить нельзя, поэтому просто подключиться к источнику
+				// данных другого типа невозможно. Поэтому надо убиться и запуститься снова, тогда
+				// будет найден новый источник данных и соответствующие функции будут определены для него.
+				// перезапусккать будем кроном, потому что busybox не имеет команды at
+				exec('(crontab -l ; echo "* * * * * '.$phpCLIexec.' '.__FILE__.'") | crontab -'); 	// каждую минуту
+				exit("Main data source died, I die too. But Cron will revive me.\n");
 			}
 			$lastTryToDataSocket = time();
 			if(!$dataSourceConnectionObject) echo "The reopening of the main data source failed. I'll try it later.\n";
@@ -172,12 +182,15 @@ do {
 			$socksRead[] = $dataSourceConnectionObject; 	// есть клиенты -- нам нужно соединение с источником данных
 			$socksError[] = $dataSourceConnectionObject; 	// 
 			$info = " and $dataSourceHumanName";
+		}
+		elseif(gettype($dataSourceConnectionObject)==='object'){	// главный источник данных в порядке, и это venusos
+			$info = " and $dataSourceHumanName";
 		}	// иначе $dataSourceConnectionObject == null, и через оборот по таймауту снова будет предпринята попытка открыть главный источник данных
 	}
 	else {	// клиентов нет -- можно закрыть соединеие с источником данных, чтобы он заснул приёмник гпс.
 		if((time()-$lastClientExchange)>=$noClientTimeout){
 			if( dataSourceClose($dataSourceConnectionObject)){
-				echo "$dataSourceHumanName socket closed by no clients                                         \r";
+				echo "$dataSourceHumanName connection closed by no clients                                         \r";
 			}
 			else echo "No clients                                                                \r";
 			$info = "";
@@ -244,7 +257,7 @@ do {
 			$msgLen = mb_strlen($msg,'8bit');
 			$res = @socket_write($socket, $msg, $msgLen);
 			if($res === FALSE) { 	// клиент умер
-				echo "\nFailed to write data to socket $socket by: " . socket_strerror(socket_last_error($sock)) . "\n";
+				echo "\nFailed to write data to socket $socket by: " . socket_strerror(@socket_last_error($sock)) . "\n";	// $sock уже может не быть сокетом
 				//echo "Не удалось записать: $msg\n";
 				chkSocks($socket);
 				continue 3;	// к следующему сокету
@@ -644,9 +657,11 @@ if(!$psList) { 	// for OpenWRT. For others -- let's hope so all run from one use
 	echo "IRun: BusyBox based system found\n";
 }
 //echo "__FILE__=".__FILE__."; pid=$pid; phpCLIexec=$phpCLIexec; toFind=$toFind;\n"; print_r($psList); //
+//file_put_contents('IRun.txt', "__FILE__=".__FILE__."; pid=$pid; phpCLIexec=$phpCLIexec; toFind=$toFind;\n".print_r($psList,true)); //
 $run = FALSE;
 foreach($psList as $str) {
 	if(strpos($str,(string)$pid)!==FALSE) continue;
+	if((strpos($str,'sh')!==FALSE) or (strpos($str,'bash')!==FALSE) or (strpos($str,'ps')!==FALSE) or (strpos($str,'grep')!==FALSE)) continue;
 	if((strpos($str,"$phpCLIexec ")!==FALSE) and (strpos($str,$toFind)!==FALSE)){
 		$run=TRUE;
 		break;
