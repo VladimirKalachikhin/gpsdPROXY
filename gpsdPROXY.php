@@ -23,7 +23,7 @@ $ cgps localhost:3838
 $ telnet localhost 3838
 */
 /*
-Version 0.6.5
+Version 0.6.6
 
 0.6.5	restart by cron
 0.6.0	add collision detections

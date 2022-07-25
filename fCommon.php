@@ -615,10 +615,12 @@ case 'netAIS':
 			$instrumentsData['AIS'][$vehicle]['cachedTime'][$type] = $timestamp;
 			$instrumentsDataUpdated['AIS'] = true;
 		}
+		// Посчитаем данные для контроля столкновений:
+		list($instrumentsData['AIS'][$vehicle]['collisionArea'],$instrumentsData['AIS'][$vehicle]['squareArea']) = updCollisionArea($instrumentsData['AIS'][$vehicle]['data'],$collisionDistance);	// fCollisions.php
 	}
 	break;
 case 'AIS':
-	//echo "JSON AIS Data: "; print_r($inInstrumentsData); echo "\n";
+	//echo "\nJSON AIS Data: "; print_r($inInstrumentsData); echo "\n";
 	$vehicle = trim((string)$inInstrumentsData['mmsi']);	//
 	$instrumentsData['AIS'][$vehicle]['data']['mmsi'] = $vehicle;
 	if($inInstrumentsData['netAIS']) $instrumentsData['AIS'][$vehicle]['data']['netAIS'] = TRUE; 	// 
