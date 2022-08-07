@@ -9,10 +9,7 @@ function chkCollisions(){
 */
 global $instrumentsData,$boatInfo,$collisionDistance;
 $instrumentsDataUpdated = array(); // массив, где указано, какие классы изменениы
-
 //echo "chkCollisions instrumentsData['AIS']:"; print_r($instrumentsData['AIS']); echo "\n";
-if(!$instrumentsData['TPV']) return $instrumentsDataUpdated;
-if(!$instrumentsData['AIS']) return $instrumentsDataUpdated;
 
 // Определим свежие координаты, курс и скорость себя
 // последние данные от какого-нибудь устройства, заведомо актуальные
