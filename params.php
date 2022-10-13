@@ -90,7 +90,15 @@ If service will not present on localhost will be attempt to find service in LAN 
 // Отключение от gpsd
 // Freeing gpsd
 // Время, сек., через которое происходит отключение от gpsd при отсутствии клиентов. gpsd отключит датчики
-$noClientTimeout = 3;	// sec., disconnect from gpsd on no any client present
+// должно быть 1 - 2 интервала возможных запросов POLL. Например, netAIS запрашивает данные посредством POLL
+// раз в 5 секунд. По POLL gpsdPROXY запросит gpsd, gpsd разбудит приёмник ГПС,
+// но не успеет получить координаты, вернув пусто. gpsdPROXY вернёт пусто в ответ на POLL. Поэтому,
+// если $noClientTimeout меньше имеющегося интервала запросов POLL, POLL'ящий клиент чаще всего не
+// будет получать координат. Но иногда -- будет.
+// Настройка этого параметра нужна для экономии электричества. 
+// Если электричества много -- нужно просто поставить значение вплоть до нескольких минут, или
+// 0 для предотвращения отключения приёмника ГПС.
+$noClientTimeout = 10;	// sec., disconnect from gpsd on no any client present. Must be a 1 - 2 possible POLL requests intervals or 0 to disable.
 
 // Параметры сохранения кеша
 // Cache backup parms

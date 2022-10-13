@@ -153,7 +153,7 @@ do { 	// при каскадном соединении нескольких gps
 	$zeroCount = 0;	// счётчик пустых строк
 	do {	// крутиться до принятия строки или до 10 пустых строк
 		$buf = @socket_read($gpsdSock, 2048, PHP_NORMAL_READ); 	// читаем
-		//echo "\nbuf:$buf| \n$zeroCount\n";
+		//echo "\nfCommon.php [connectToGPSD] buf:$buf| \n$zeroCount\n";
 		if($buf === FALSE) { 	// gpsd умер
 			//echo "\nFailed to read data from gpsd: " . socket_strerror(socket_last_error()) . "\n";
 			chkSocks($gpsdSock);
@@ -945,7 +945,7 @@ if((time()-$dataUpdated)>=$minSocketTimeout){	// давно не получал�
 	//echo "POLL: данные были получены ".(time()-$dataUpdated)." сек. назад.                   \n";
 	updAndPrepare();	// проверим кеш на предмет протухших данных
 }
-//echo "\n instrumentsData\n"; print_r($instrumentsData['TPV']);
+//echo "\n [makePOLL] instrumentsData\n"; print_r($instrumentsData['TPV']);
 foreach($subscribes as $subscribe=>$v){
 	switch($subscribe){
 	case "TPV":

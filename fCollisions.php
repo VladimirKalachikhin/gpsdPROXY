@@ -17,34 +17,36 @@ $instrumentsDataUpdated = array(); // массив, где указано, ка�
 // сделать лишнее при изменении цели AIS.
 // Зато здесь данные после проверки на свежесть.
 $freshTtime = 0; $freshPtime = 0; $freshVtime = 0;
-foreach($instrumentsData['TPV'] as $device => $data){
-	foreach($data['cachedTime'] as $type => $cachedTime){
-		switch($type){
-		case 'lat':
-			if($freshPtime > $cachedTime) continue 2;
-			$freshPtime = $cachedTime;
-			$boatInfo['lat'] = $data['data'][$type];
-			break;
-		case 'lon':
-			if($freshPtime > $cachedTime) continue 2;
-			$freshPtime = $cachedTime;
-			$boatInfo['lon'] = $data['data'][$type];
-			break;
-		case 'track':
-			if($freshTtime > $cachedTime) continue 2;
-			$freshTtime = $cachedTime;
-			$boatInfo['track'] = $data['data'][$type];
-			$boatInfo['course'] = $data['data'][$type];	// в AIS оно course, так что для совместимости
-			//echo "\n boatInfo['course']={$boatInfo['course']}; is_int:".(is_int($boatInfo['course']))."; boatInfo['course']===0:".($boatInfo['course']===0).";\n";
-			break;
-		case 'speed':
-			//echo "\nspeed={$data['data'][$type]}\n";
-			if($freshVtime > $cachedTime) continue 2;
-			$freshVtime = $cachedTime;
-			$boatInfo['speed'] = $data['data'][$type];
-			break;
-		default:
-			continue 2;
+if($instrumentsData['TPV']){
+	foreach($instrumentsData['TPV'] as $device => $data){
+		foreach($data['cachedTime'] as $type => $cachedTime){
+			switch($type){
+			case 'lat':
+				if($freshPtime > $cachedTime) continue 2;
+				$freshPtime = $cachedTime;
+				$boatInfo['lat'] = $data['data'][$type];
+				break;
+			case 'lon':
+				if($freshPtime > $cachedTime) continue 2;
+				$freshPtime = $cachedTime;
+				$boatInfo['lon'] = $data['data'][$type];
+				break;
+			case 'track':
+				if($freshTtime > $cachedTime) continue 2;
+				$freshTtime = $cachedTime;
+				$boatInfo['track'] = $data['data'][$type];
+				$boatInfo['course'] = $data['data'][$type];	// в AIS оно course, так что для совместимости
+				//echo "\n boatInfo['course']={$boatInfo['course']}; is_int:".(is_int($boatInfo['course']))."; boatInfo['course']===0:".($boatInfo['course']===0).";\n";
+				break;
+			case 'speed':
+				//echo "\nspeed={$data['data'][$type]}\n";
+				if($freshVtime > $cachedTime) continue 2;
+				$freshVtime = $cachedTime;
+				$boatInfo['speed'] = $data['data'][$type];
+				break;
+			default:
+				continue 2;
+			}
 		}
 	}
 }
@@ -55,12 +57,14 @@ if($boatInfo['lat'] and $boatInfo['lon']) {	// координаты себя м�
 	list($boatInfo['collisionArea'],$boatInfo['squareArea']) = updCollisionArea($boatInfo,$collisionDistance);	// 
 	//echo "chkCollisions self boatInfo:"; print_r($boatInfo); echo "\n";
 	//$instrumentsData['ALARM']['collisionSegments'] = array();	///////// for collision test purpose /////////
-	foreach($instrumentsData['AIS'] as $id => $vehicle){	// для каждого судна из AIS
-		if(!$vehicle['data']['lat'] or !$vehicle['data']['lon']) continue;
-		if(chkCollision($id)) {	// проверим возможность столкновения
-			$instrumentsData['ALARM']['collisions'][$id] = array('lat'=>$vehicle['data']['lat'],'lon'=>$vehicle['data']['lon']);
-			$instrumentsDataUpdated = array('ALARM' => true);
-			//echo "\n Collision with $id\n";
+	if($instrumentsData['AIS']){
+		foreach($instrumentsData['AIS'] as $id => $vehicle){	// для каждого судна из AIS
+			if(!$vehicle['data']['lat'] or !$vehicle['data']['lon']) continue;
+			if(chkCollision($id)) {	// проверим возможность столкновения
+				$instrumentsData['ALARM']['collisions'][$id] = array('lat'=>$vehicle['data']['lat'],'lon'=>$vehicle['data']['lon']);
+				$instrumentsDataUpdated = array('ALARM' => true);
+				//echo "\n Collision with $id\n";
+			}
 		}
 	}
 }

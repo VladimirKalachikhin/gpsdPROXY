@@ -23,7 +23,7 @@ $ cgps localhost:3838
 $ telnet localhost 3838
 */
 /*
-Version 0.6.7
+Version 0.6.8
 
 0.6.5	restart by cron
 0.6.0	add collision detections
@@ -114,11 +114,11 @@ $masterSock = createSocketServer($gpsdProxyHost,$gpsdProxyPort,20); 	// Соед
 //echo "masterSock=$masterSock; dataSourceConnectionObject=$dataSourceConnectionObject;\n";
 
 // Подключимся к источнику данных
-echo "Socket to $dataSourceHumanName opened, do handshaking                                   \n";
+echo "Begin: socket to $dataSourceHumanName opened, do handshaking                                   \n";
 $devicePresent = dataSourceConnect($dataSourceConnectionObject);	// реально $devicePresent нигде не используются, кроме как ниже. Можно использовать как-нибудь?
 //var_dump($devicePresent);
 if($devicePresent===FALSE) exit("Handshaking fail: $dataSourceHumanName on $dataSourceHost:$dataSourcePort not answer, bye     \n");
-echo "Handshaked, will recieve data from $dataSourceHumanName\n";
+echo "Begin: handshaked, will recieve data from $dataSourceHumanName\n";
 if(!$devicePresent) echo"but no required devices present     \n";
 
 // После того, как стало понятно, что всё нормально, удалим себя из cron
@@ -188,7 +188,8 @@ do {
 		}	// иначе $dataSourceConnectionObject == null, и через оборот по таймауту снова будет предпринята попытка открыть главный источник данных
 	}
 	else {	// клиентов нет -- можно закрыть соединеие с источником данных, чтобы он заснул приёмник гпс.
-		if((time()-$lastClientExchange)>=$noClientTimeout){
+		//echo "\nNo clients present. noClientTimeout=$noClientTimeout; lastClientExchange=".(time()-$lastClientExchange)."\n";
+		if($noClientTimeout and ((time()-$lastClientExchange)>=$noClientTimeout)){
 			if( dataSourceClose($dataSourceConnectionObject)){
 				echo "$dataSourceHumanName connection closed by no clients                                         \r";
 			}
@@ -609,6 +610,7 @@ do {
 			case 'POLL':
 				if(!$messages[$sockKey]['POLL']) continue 2; 	// на POLL будем отзываться только после ?WATCH={"enable":true}
 				$POLL = makePOLL($params['subscribe']);	// подготовим данные в соответствии с подпиской
+				//echo "\nPOLL recieved, prepare data:"; print_r($POLL);
 				$messages[$sockKey]['output'][] = json_encode($POLL)."\r\n\r\n"; 	// будем копить сообщения, вдруг клиент не готов их принять
 				unset($POLL);
 				break;
@@ -663,9 +665,15 @@ foreach($psList as $str) {
 	if(strpos($str,(string)$pid)!==FALSE) continue;
 	//echo "$str\n";
 	if((strpos($str,'sh ')!==FALSE) or (strpos($str,'bash ')!==FALSE) or (strpos($str,'ps ')!==FALSE) or (strpos($str,'grep ')!==FALSE)) continue;
-	if((strpos($str,"$phpCLIexec ")!==FALSE) and (strpos($str,$toFind)!==FALSE)){
-		$run=TRUE;
-		break;
+	//if((strpos($str,"$phpCLIexec ")!==FALSE) and (strpos($str,$toFind)!==FALSE)){	
+	// В docker image  thecodingmachine/docker-images-php $phpCLIexec===php, но реально запускается /usr/bin/real_php
+	// поэтому ищем имя скрипта, а в том, чем его запустили -- php
+	if(strpos($str,$toFind)!==FALSE){	
+		$str = explode(' ',$str);
+		if(strpos($str[0],"php")!==FALSE){
+			$run=TRUE;
+			break;
+		}
 	}
 }
 //echo "run=$run;\n";
