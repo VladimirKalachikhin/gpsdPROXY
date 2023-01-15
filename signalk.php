@@ -6,11 +6,8 @@ $dataSourceHumanName = 'SignalK';	//
 // Укажите требуемое, исходя из https://signalk.org/specification/1.5.0/doc/vesselsBranch.html
 // Specify the required, based on https://signalk.org/specification/1.5.0/doc/vesselsBranch.html
 $signalKnames = array(
-'track' => 'courseOverGroundTrue',		// headingTrue
 'speed' => 'speedOverGround',			// speedThroughWater speedThroughWaterLongitudinal 
 'depth' => 'belowTransducer',			// belowKeel belowSurface
-'magtrack' => 'courseOverGroundMagnetic',	// headingMagnetic headingCompass
-'magvar' => 'magneticVariation'			//
 );
 
 $dataSourceConnectionObject = createSocketClient($dataSourceHost,$dataSourcePort);	// объект соединения с сервером SignalK
@@ -134,13 +131,25 @@ $signalKsubscribe = '{
 			"minPeriod": 0
 		},
 		{
-			"path": "navigation.'.$signalKnames['magtrack'].'",
+			"path": "navigation.headingMagnetic",
 			"format": "delta",
 			"policy": "instant",
 			"minPeriod": 0
 		},
 		{
-			"path": "navigation.'.$signalKnames['magvar'].'",
+			"path": "navigation.magneticVariation",
+			"format": "delta",
+			"policy": "instant",
+			"minPeriod": 0
+		},
+		{
+			"path": "navigation.magneticDeviation",
+			"format": "delta",
+			"policy": "instant",
+			"minPeriod": 0
+		},
+		{
+			"path": "navigation.headingCompass",
 			"format": "delta",
 			"policy": "instant",
 			"minPeriod": 0
@@ -158,7 +167,7 @@ $signalKsubscribe = '{
 			"minPeriod": 0
 		},
 ';		
-if($signalKnames['track'] != 'speedOverGround')	{
+if($signalKnames['speed'] != 'speedOverGround')	{
 	$signalKsubscribe .= '
 		{
 			"path": "navigation.'.$signalKnames['speed'].'",
@@ -262,6 +271,23 @@ if($buf['context'] == $self){	//echo "Сведения о себе              
 				break;
 			case ('navigation.'.$signalKnames['track']):
 				$tpv['track'] = ($sample['value']*180)/M_PI;	// Units: rad (Radian)
+				break;
+			case 'navigation.courseOverGroundTrue':
+				$tpv['track'] = ($sample['value']*180)/M_PI;	// Units: rad (Radian)
+				break;
+			case 'navigation.headingTrue':
+				$tpv['heading'] = ($sample['value']*180)/M_PI;	// Units: rad (Radian)
+				break;
+			// в принципе, может быть и navigation.headingMagnetic и navigation.headingCompass
+			// причём разные (с учётом navigation.magneticDeviation)
+			// Кто им доктор?
+			case 'navigation.headingMagnetic':
+				$tpv['mheading'] = ($sample['value']*180)/M_PI;	// Units: rad (Radian)
+			case 'navigation.headingCompass':
+				$tpv['mheading'] = ($sample['value']*180)/M_PI;	// Units: rad (Radian)
+				break;
+			case 'navigation.magneticDeviation':	// Magnetic deviation of the compass at the current headingCompass погрешность компаса, магнитная девиация
+				$tpv['magdev'] = ($sample['value']*180)/M_PI;	// Units: rad (Radian)
 				break;
 			case ('navigation.'.$signalKnames['speed']):
 				$tpv['speed'] = $sample['value'];

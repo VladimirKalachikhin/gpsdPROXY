@@ -16,13 +16,14 @@ $gpsdProxyTimeouts = array(  	// время в секундах после по�
 	'alt' => 20, 	// legacy Altitude in meters. 
 	'lat' => 10,
 	'lon' => 10,
-	'track' => 10, 	// курс
+	'track' => 10, 	// истинный курсовой угол
 	'speed' => 5,	// Speed over ground, meters per second.
 	'errX' => 30,
 	'errY' => 30,
 	'errS' => 30,
 	'magtrack' => 10, 	// магнитный курс
 	'magvar' => 3600, 	// магнитное склонение
+	'mheading' => 10,	// магнитный курс
 	'depth' => 5, 		// глубина
 	'wanglem' => 3, 	// Wind angle magnetic in degrees.
 	'wangler' => 3, 	// Wind angle relative in degrees.
@@ -45,10 +46,10 @@ $gpsdProxyTimeouts = array(  	// время в секундах после по�
 );
 
 // Характеристики судна
-// Если используется netAIS -- укажите его конфигурационный файл, иначе -- укажите необходимое здесь
+// Если используется netAIS -- укажите его файл с параметрами судна, иначе -- укажите необходимое здесь
 // Информация из конфигурационного файла netAIS имеет преимущество.
 // Vehacle description
-// If netAIS is used -- specify its configuration file, otherwise -- specify the necessary here.
+// If netAIS is used -- specify its vessel's configuration file, otherwise -- specify the necessary here.
 // The information from the netAIS configuration file has an advantage.
 $netAISconfig = '../../netAIS/boatInfo.ini';
 $boatInfo = array();
@@ -59,7 +60,9 @@ $boatInfo = array(
 'to_bow'=>5,	// к носу от точки координат, в метрах. Reference point for reported position. Also indicates the dimension of ship (m) (see Fig. 42 and § 3.3.3) For SAR aircraft, the use of this field may be decided by the responsible administration. If used it should indicate the maximum dimensions of the craft. As default should A = B = C = D be set to “0”
 'to_stern'=>4,	// к корме. Reference point for reported position.
 'to_port'=>2.25,	// к левому борту. Reference point for reported position.
-'to_starboard'=>0.75	// к правому борту. Reference point for reported position.
+'to_starboard'=>0.75,	// к правому борту. Reference point for reported position.
+'to_echosounder'=>0,		// поправка к получаемой от прибора глубине до желаемой: от поверхности или от киля. Correction to the depth received from the device to the desired depth: from the surface or from the keel.
+'magdev'=>0		// девиация компаса, градусы. Magnetic deviation of the compass, degrees
 );
 */
 
@@ -73,6 +76,7 @@ $noVehicleTimeout = 10*60; 	// seconds, time of continuous absence of the vessel
 // 	Дистанция, до которой определяется возможность столкновения, в минутах движения
 $collisionDistance = 10;	// minutes of movement
 
+// Источник данных. Data source.
 //$dataSourceHost = 'localhost';	// default
 //$dataSourcePort = 2947;	// default gpsd
 

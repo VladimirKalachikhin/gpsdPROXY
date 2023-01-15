@@ -23,8 +23,9 @@ $ cgps localhost:3838
 $ telnet localhost 3838
 */
 /*
-Version 0.6.8
+Version 0.6.9
 
+0.6.9	support heading and course sepately
 0.6.5	restart by cron
 0.6.0	add collision detections
 0.5.1	add Signal K data source
@@ -162,7 +163,7 @@ do {
 				// однако, функции в PHP переопределить нельзя, поэтому просто подключиться к источнику
 				// данных другого типа невозможно. Поэтому надо убиться и запуститься снова, тогда
 				// будет найден новый источник данных и соответствующие функции будут определены для него.
-				// перезапусккать будем кроном, потому что busybox не имеет команды at
+				// перезапускать будем кроном, потому что busybox не имеет команды at
 				exec('(crontab -l ; echo "* * * * * '.$phpCLIexec.' '.__FILE__.'") | crontab -'); 	// каждую минуту
 				exit("Main data source died, I die too. But Cron will revive me.\n");
 			}

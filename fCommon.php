@@ -72,7 +72,8 @@ if(! @socket_connect($sock,$host,$port)){ 	// подключаемся к сер
 	return FALSE;
 	//exit('1');
 }
-echo "Connected to $host:$port\n";
+echo "Connected to $sock on $host:$port\n";
+//echo gettype($sock);
 //$res = socket_write($socket, "\n");
 return $sock;
 } // end function createSocketClient
@@ -129,10 +130,12 @@ function chkGPSDpresent($host,$port){
 $return = FALSE;
 $socket = createSocketClient($host,$port);
 if($socket){
+	socket_set_option($socket,SOL_SOCKET, SO_RCVTIMEO, array("sec"=>3, "usec"=>0));	// таймаут в sec
 	$res = @socket_write($socket, "\r\n", 2);	// gpsgPROXY не вернёт greeting, если не получит что-то. Ну, так получилось
 	if($res !== FALSE) { 	
-		$buf = @socket_read($socket, 2048, PHP_NORMAL_READ); 	// читаем
+		$buf = @socket_read($socket, 2048); 	// читаем, но если PHP_NORMAL_READ, то таймаут игнорируется, и оно будет висеть вечно
 		if($buf !== FALSE){
+			//echo "|$buf|\n";
 			$buf = json_decode($buf, true);
 			if(substr($buf["class"],0,7)=='VERSION') $return = TRUE;
 		}
@@ -219,6 +222,7 @@ Return array(host,port) of BSD socket of SignalK or FALSE
 $return = FALSE;
 //echo "realChkSignalKpresent: $host:$port;\n";
 $buf = @file_get_contents("http://$host:$port/signalk");
+//echo "buf: "; print_r($buf);
 if($buf!==FALSE){
 	$buf = json_decode($buf, true);
 	if($buf!==NULL){
@@ -323,7 +327,8 @@ function findSource($dataSourceType,$dataSourceHost=null,$dataSourcePort=null){
 switch($dataSourceType){
 case 'venusos':
 	if(!$dataSourceHost) $dataSourceHost = '127.0.0.1';	
-	if(!$dataSourcePort) $dataSourcePort = 1883;	
+	if(!$dataSourcePort) $dataSourcePort = 1883;
+	echo "Try VenusOS on $dataSourceHost:$dataSourcePort\n";
 	$res = chkVenusOSpresent($dataSourceHost,$dataSourcePort);
 	if($res){
 		if(is_array($res)) list($dataSourceHost,$dataSourcePort) = $res;
@@ -331,19 +336,20 @@ case 'venusos':
 		echo "Found VenusOS # $VenusOSsystemSerial on $dataSourceHost:$dataSourcePort\n";
 	}
 	else { 	// попробуем Signal K
+		echo "VenusOS not found. Try SignalK by Avahi\n";
 		$res = findSignalKinLAN();	// спросим у Avahi
 		if($res) {
 			list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт веб-интерфейса
 			$res = realChkSignalKpresent($host,$port);
-			print_r($res);
 			if($res) {
 				list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт нормального сокета
 				$requireFile = 'signalk.php';
 				echo "Found Signal K on $dataSourceHost:$dataSourcePort\n";
 			}
-			else { echo "Найденные адреса кривые\n";
+			else { 
 				$dataSourceHost = '127.0.0.1';	
 				$dataSourcePort = 3000;	
+				echo "Avahi return bad. Try SignalK on $dataSourceHost:$dataSourcePort\n";
 				$res = chkSignalKpresent($dataSourceHost,$dataSourcePort);
 				if($res){
 					list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт нормального сокета
@@ -355,6 +361,7 @@ case 'venusos':
 		else {
 			$dataSourceHost = '127.0.0.1';	
 			$dataSourcePort = 3000;	
+			echo "Avahi return no. Try SignalK on $dataSourceHost:$dataSourcePort\n";
 			$res = chkSignalKpresent($dataSourceHost,$dataSourcePort);
 			if($res){
 				list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт нормального сокета
@@ -367,6 +374,7 @@ case 'venusos':
 case 'signalk':
 	if(!$dataSourceHost) $dataSourceHost = '127.0.0.1';	
 	if(!$dataSourcePort) $dataSourcePort = 3000;	
+	echo "Try SignalK on $dataSourceHost:$dataSourcePort\n";
 	$res = chkSignalKpresent($dataSourceHost,$dataSourcePort);
 	if($res){
 		list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт нормального сокета
@@ -374,6 +382,7 @@ case 'signalk':
 		echo "Found Signal K on $dataSourceHost:$dataSourcePort\n";
 	}
 	else {
+		echo "SignalK not found. Try SignalK by Avahi\n";
 		$res = findSignalKinLAN();	// спросим у Avahi
 		if($res) {	//echo "Avahi что-то нашёл\n";
 			list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт веб-интерфейса
@@ -388,6 +397,7 @@ case 'signalk':
 		else {	// попробуем VenusOS
 			$dataSourceHost = '127.0.0.1';	
 			$dataSourcePort = 1883;	
+			echo "Avahi return no. Try VenusOS on $dataSourceHost:$dataSourcePort\n";
 			$res = chkVenusOSpresent($dataSourceHost,$dataSourcePort);
 			if($res){
 				if(is_array($res)) list($dataSourceHost,$dataSourcePort) = $res;
@@ -400,24 +410,58 @@ case 'signalk':
 default:	// gpsd
 	if(!$dataSourceHost) $dataSourceHost = '127.0.0.1';	
 	if(!$dataSourcePort) $dataSourcePort = 2947;	
+	echo "Try gpsd on $dataSourceHost:$dataSourcePort\n";
 	if(chkGPSDpresent($dataSourceHost,$dataSourcePort)) {
 		$requireFile = 'gpsd.php';
 		echo "Found gpsd on $dataSourceHost:$dataSourcePort\n";
 	}
-	else { 	 //echo "попробуем Signal K\n";
-		$res = findSignalKinLAN();	// спросим у Avahi
-		if($res) {	//echo "Avahi что-то нашёл\n";
-			list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт веб-интерфейса
-			//echo "$dataSourceHost:$dataSourcePort\n";
-			$res = realChkSignalKpresent($dataSourceHost,$dataSourcePort);
-			if($res) {
-				list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт нормального сокета
-				$requireFile = 'signalk.php';
-				echo "Found Signal K on $dataSourceHost:$dataSourcePort\n";
+	else {
+		echo "gpsd not found. Try SignalK on $dataSourceHost:$dataSourcePort\n";
+		$res = chkSignalKpresent($dataSourceHost,$dataSourcePort);
+		if($res){
+			list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт нормального сокета
+			$requireFile = 'signalk.php';
+			echo "Found Signal K on $dataSourceHost:$dataSourcePort\n";
+		}
+		else {
+			echo "SignalK not found. Try SignalK by Avahi\n";
+			$res = findSignalKinLAN();	// спросим у Avahi
+			if($res) {	//echo "Avahi что-то нашёл\n";
+				list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт веб-интерфейса
+				//echo "$dataSourceHost:$dataSourcePort\n";
+				$res = realChkSignalKpresent($dataSourceHost,$dataSourcePort);
+				if($res) {
+					list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт нормального сокета
+					$requireFile = 'signalk.php';
+					echo "Found Signal K on $dataSourceHost:$dataSourcePort\n";
+				}
+				else {
+					$dataSourceHost = '127.0.0.1';	
+					$dataSourcePort = 3000;	
+					echo "Avahi return bad. Try SignalK on $dataSourceHost:$dataSourcePort\n";
+					$res = chkSignalKpresent($dataSourceHost,$dataSourcePort);
+					if($res){
+						list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт нормального сокета
+						$requireFile = 'signalk.php';
+						echo "Found SignalK on $dataSourceHost:$dataSourcePort\n";
+					}
+					else {	// попробуем VenusOS
+						$dataSourceHost = '127.0.0.1';	
+						$dataSourcePort = 1883;	
+						echo "SignalK not found. Try VenusOS on $dataSourceHost:$dataSourcePort\n";
+						$res = chkVenusOSpresent($dataSourceHost,$dataSourcePort);
+						if($res){
+							if(is_array($res)) list($dataSourceHost,$dataSourcePort) = $res;
+							$requireFile = 'venusos.php';
+							echo "Found VenusOS # $VenusOSsystemSerial on $dataSourceHost:$dataSourcePort\n";
+						}
+					}
+				}
 			}
-			else { echo "Найденные адреса кривые\n";
+			else {
 				$dataSourceHost = '127.0.0.1';	
 				$dataSourcePort = 3000;	
+				echo "Avahi return no. Try SignalK on $dataSourceHost:$dataSourcePort\n";
 				$res = chkSignalKpresent($dataSourceHost,$dataSourcePort);
 				if($res){
 					list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт нормального сокета
@@ -427,6 +471,7 @@ default:	// gpsd
 				else {	// попробуем VenusOS
 					$dataSourceHost = '127.0.0.1';	
 					$dataSourcePort = 1883;	
+					echo "SignalK not found. Try VenusOS on $dataSourceHost:$dataSourcePort\n";
 					$res = chkVenusOSpresent($dataSourceHost,$dataSourcePort);
 					if($res){
 						if(is_array($res)) list($dataSourceHost,$dataSourcePort) = $res;
@@ -435,27 +480,7 @@ default:	// gpsd
 					}
 				}
 			}
-		}
-		else {
-			$dataSourceHost = '127.0.0.1';	
-			$dataSourcePort = 3000;	
-			$res = chkSignalKpresent($dataSourceHost,$dataSourcePort);
-			if($res){
-				list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт нормального сокета
-				$requireFile = 'signalk.php';
-				echo "Found Signal K on $dataSourceHost:$dataSourcePort\n";
-			}
-			else {	// попробуем VenusOS
-				$dataSourceHost = '127.0.0.1';	
-				$dataSourcePort = 1883;	
-				$res = chkVenusOSpresent($dataSourceHost,$dataSourcePort);
-				if($res){
-					if(is_array($res)) list($dataSourceHost,$dataSourcePort) = $res;
-					$requireFile = 'venusos.php';
-					echo "Found VenusOS # $VenusOSsystemSerial on $dataSourceHost:$dataSourcePort\n";
-				}
-			}
-		}		
+		}	
 	}
 }
 
@@ -561,7 +586,7 @@ Array
 {"class":"AIS","device":"tcp://localhost:2222","type":1,"repeat":0,"mmsi":244660492,"scaled":false,"status":0,"status_text":"Under way using engine","turn":-128,"speed":0,"accuracy":true,"lon":3424893,"lat":31703105,"course":0,"heading":511,"second":25,"maneuver":0,"raim":true,"radio":81955}
 
 */
-global $instrumentsData,$gpsdProxyTimeouts,$collisionDistance,$dataUpdated;
+global $instrumentsData,$gpsdProxyTimeouts,$collisionDistance,$dataUpdated,$boatInfo;
 $instrumentsDataUpdated = array(); // массив, где указано, какие классы изменениы и кем.
 $now = time();
 //echo "\ninInstrumentsData="; print_r($inInstrumentsData);echo"\n";
@@ -579,6 +604,16 @@ case 'TPV':
 			// Однако, оказывается, что числа уже всегда? И чё теперь? Ибо (int)0 !== (float)0
 			$instrumentsData['TPV'][$inInstrumentsData['device']]['data'][$type] = 0+$value; 	
 			//echo "\ntype=$type; value=$value; is_int:".(is_int($value))."; is_float:".(is_float($value))."; \n";
+			// Поправки
+			switch($type){
+			case 'depth': 
+				if(isset($boatInfo['to_echosounder'])) $instrumentsData['TPV'][$inInstrumentsData['device']]['data'][$type] += $boatInfo['to_echosounder'];
+				break;
+			case 'mheading': 
+				if(isset($instrumentsData['TPV'][$inInstrumentsData['device']]['data']['magdev'])) $instrumentsData['TPV'][$inInstrumentsData['device']]['data'][$type] += $instrumentsData['TPV'][$inInstrumentsData['device']]['data']['magdev'];
+				elseif(isset($boatInfo['magdev'])) $instrumentsData['TPV'][$inInstrumentsData['device']]['data'][$type] += $boatInfo['magdev'];
+				break;
+			}
 		}
 		else{
 			$instrumentsData['TPV'][$inInstrumentsData['device']]['data'][$type] = $value; 	// string
