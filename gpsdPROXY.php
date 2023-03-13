@@ -174,6 +174,8 @@ do {
 	
 	$socksRead = $sockets; 	// мы собираемся читать все сокеты
 	$socksRead[] = $masterSock; 	// 
+	$socksError = $sockets; 	// 
+	$socksError[] = $masterSock; 	// 
 	if($sockets) {	// есть, возможно, клиенты, включая тех, кто с CONNECT и UPDATE
 		if(gettype($dataSourceConnectionObject)==='resource (closed)') {	// главный источник есть, но мы его ранее закрыли
 			chkSocks($dataSourceConnectionObject);	// 
@@ -205,8 +207,6 @@ do {
 	}
 	//echo "\n socksRead:"; print_r($socksRead); echo "\n";
 	//echo "\n socksWrite:"; print_r($socksWrite); echo "\n";
-	$socksError = $sockets; 	// 
-	$socksError[] = $masterSock; 	// 
 
 	//echo "\n\nНачало. Ждём, пока что-нибудь произойдёт\n";
 	// при тишине раз в  провернём цикл на предмет очистки от умерших сокетов и протухших данных
@@ -223,7 +223,7 @@ do {
 	$num_changed_sockets = socket_select($socksRead, $socksWrite, $socksError, $SocketTimeout); 	// должно ждать
 
 	//echo "\nnum_changed_sockets=$num_changed_sockets;      \n";
-	echo "Has ".(count($sockets))." client socks, and master$info socks. Ready ".count($socksRead)." read and ".count($socksWrite)." write socks\r";	// в начале, потому что continue
+	echo "Has ".(count($sockets))." client socks, and master$info socks. Ready ".count($socksRead)." read and ".count($socksWrite)." write socks\r";
 
 	// теперь в $socksRead только те сокеты, куда пришли данные, в $socksWrite -- те, откуда НЕ считали, т.е., не было, что читать, но они готовы для чтения
 	if (($num_changed_sockets === FALSE) or $socksError) { 	// Warning не перехватываются, включая supplied resource is not a valid Socket resource И смысл?
@@ -666,14 +666,18 @@ foreach($psList as $str) {
 	if(strpos($str,(string)$pid)!==FALSE) continue;
 	//echo "$str\n";
 	if((strpos($str,'sh ')!==FALSE) or (strpos($str,'bash ')!==FALSE) or (strpos($str,'ps ')!==FALSE) or (strpos($str,'grep ')!==FALSE)) continue;
+	//echo "str=$str;\n";
 	//if((strpos($str,"$phpCLIexec ")!==FALSE) and (strpos($str,$toFind)!==FALSE)){	
 	// В docker image  thecodingmachine/docker-images-php $phpCLIexec===php, но реально запускается /usr/bin/real_php
 	// поэтому ищем имя скрипта, а в том, чем его запустили -- php
 	if(strpos($str,$toFind)!==FALSE){	
 		$str = explode(' ',$str);
-		if(strpos($str[0],"php")!==FALSE){
-			$run=TRUE;
-			break;
+		//print_r($str);
+		foreach($str as $st){
+			if(strpos($st,"php")!==FALSE){
+				$run=TRUE;
+				break 2;
+			}
 		}
 	}
 }

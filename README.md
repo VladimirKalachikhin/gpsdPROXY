@@ -46,6 +46,9 @@ The gpsdPROXY tries to determine the possibility of a collision according to the
 ![collision model](screenshots/s1.jpeg)<br>  
  Object `{"class":"ALARM","alarms":{"collisions":[]}}` contains a list of mmsi and position of vessels that have a risk of collision. The [GaladrielMap](https://github.com/VladimirKalachikhin/Galadriel-map) highlights such vessels on the map and indicates the direction to them on self cursor.
 
+## Compatibility
+Linux, PHP < 8. The cretinous decisions made at PHP 8 do not allow the **gpsdPROXY** to work at PHP 8, and I do not want to follow these decisions.
+
 ## Configure
 See _params.php_
 

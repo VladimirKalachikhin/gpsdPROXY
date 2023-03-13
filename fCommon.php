@@ -35,7 +35,7 @@ if(!$sock) {
 	//return FALSE;
 	exit('1');
 }
-for($i=0;$i<100;$i++) {
+for($i=0;$i<100;$i++) {	// PHP Warning:  socket_bind(): Unable to bind address [98]: Address already in use
 	$res = @socket_bind($sock, $host, $port);
 	if(!$res) {
 		echo "Failed to binding to $host:$port by: " . socket_strerror(socket_last_error($sock)) . ", waiting $i\r";

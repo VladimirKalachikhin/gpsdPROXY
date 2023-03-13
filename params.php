@@ -16,7 +16,8 @@ $gpsdProxyTimeouts = array(  	// время в секундах после по�
 	'alt' => 20, 	// legacy Altitude in meters. 
 	'lat' => 10,
 	'lon' => 10,
-	'track' => 10, 	// истинный курсовой угол
+	'track' => 10, 	// истинный путевой угол
+	'heading' => 10,	// истинный курс
 	'speed' => 5,	// Speed over ground, meters per second.
 	'errX' => 30,
 	'errY' => 30,
@@ -79,6 +80,8 @@ $collisionDistance = 10;	// minutes of movement
 // Источник данных. Data source.
 //$dataSourceHost = 'localhost';	// default
 //$dataSourcePort = 2947;	// default gpsd
+//$dataSourceHost = '192.168.10.105';	// SignalK
+//$dataSourcePort = 3000;	// SignalK
 
 /* Можно указать только тип источника данных: gpsd, venusos или signalk, если порт стандартный, а хост -- localhost
 если же источники типа venusos или signalk не будут обнаружены на локальном компьютере, будет сделана попытка
