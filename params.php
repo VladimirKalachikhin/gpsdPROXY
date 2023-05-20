@@ -33,16 +33,16 @@ $gpsdProxyTimeouts = array(  	// время в секундах после по�
 	'wspeedt' => 3, 	// Wind speed true in meters per second.
 	'time' => 10		// Set same as lat lon. Regiure!
 ),
-'AIS' => array( 	// AIS datatypes
+'AIS' => array( 	// AIS datatypes. Реально задержка даже от реального AIS может быть минута, а через интернет - до трёх
 	'status' => 86400, 	// Navigational status, one day сутки
-	'accuracy' => 600, 	// Position accuracy
-	'turn' => 7, 	// 
-	'lon' => 600, 	// 
-	'lat' => 600, 	// 
-	'speed' => 60, 	// 
-	'course' => 60, 	// 
-	'heading' => 60, 	// 
-	'maneuver' => 60 	// 
+	'accuracy' => 60*5, 	// Position accuracy
+	'turn' => 60*3, 	// 
+	'lon' => 60*4, 	// 
+	'lat' => 60*4, 	// 
+	'speed' => 60*2, 	// 
+	'course' => 60*3, 	// 
+	'heading' => 60*3, 	// 
+	'maneuver' => 60*3 	// 
 )
 );
 
@@ -68,7 +68,7 @@ $boatInfo = array(
 */
 
 // время в секундах, в течении которого цель AIS сохраняется в кеше после получения от неё последней информации
-$noVehicleTimeout = 10*60; 	// seconds, time of continuous absence of the vessel in AIS, when reached - is deleted from the data. "when a ship is moored or at anchor, the position message is only broadcast every 180 seconds;"
+$noVehicleTimeout = 20*60; 	// seconds, time of continuous absence of the vessel in AIS, when reached - is deleted from the data. "when a ship is moored or at anchor, the position message is only broadcast every 180 seconds;"
 // адрес и порт источника координат и остальных данных, по умолчанию -- gpsd
 // host and port of instruments data source, gpsd by default
 

@@ -138,7 +138,7 @@ $messages = array(); 	//
 ]" номеров сокетов подключившихся клиентов
 */
 $dataSourceZeroCNT = 0;	// счётчик пустых строк, пришедших подряд от источника данных
-$lastTryToDataSocket = 0;	// момент последней попытки поднять основной источник данных
+$lastTryToDataSocket = time();	// момент последней попытки поднять основной источник данных
 $dataUpdated = 0;	// время последней коммуникации с источником данных, чтобы проверять свежесть данных не при каждом POLL
 
 $socksRead = array(); $socksWrite = array(); $socksError = array(); 	// массивы для изменивших состояние сокетов (с учётом, что они в socket_select() по ссылке, и NULL прямо указать нельзя)
@@ -154,8 +154,10 @@ do {
 	//echo "\ndataSourceConnectionObject=$dataSourceConnectionObject; time()-lastTryToDataSocket=".(time()-$lastTryToDataSocket)."\n";
 	//if(!$dataSourceConnectionObject or gettype($dataSourceConnectionObject)==='resource (closed)'){
 	
-	if(!$dataSourceConnectionObject){
-		if((time()-$lastTryToDataSocket)>=$SocketTimeout){	// чтобы не каждый оборот, иначе никакакой handshaking никогда не завершится
+	// он может быть, но молчать, потому что его источник данных отвалился
+	// для того, чтобы он (gpsd, да) переконнектился к источнику данных -- его надо пнуть
+	//if(!$dataSourceConnectionObject){	
+		if((time()-$lastTryToDataSocket)>=10*$SocketTimeout){	// чтобы не каждый оборот, иначе никакакой handshaking никогда не завершится
 			echo "\nNo main data source. Trying to reopen.    \n";
 			chkSocks($dataSourceConnectionObject);	// а как ещё узнать, что сокет закрыт? Массив error socket_select не помогает.
 			if(!$dataSourceConnectionObject){
@@ -170,7 +172,7 @@ do {
 			$lastTryToDataSocket = time();
 			if(!$dataSourceConnectionObject) echo "The reopening of the main data source failed. I'll try it later.\n";
 		}
-	}
+	//}
 	
 	$socksRead = $sockets; 	// мы собираемся читать все сокеты
 	$socksRead[] = $masterSock; 	// 
@@ -281,6 +283,8 @@ do {
 		socket_clear_error($socket);
 		if($socket == $masterSock) { 	// новое подключение
 			$sock = socket_accept($socket); 	// новый сокет для подключившегося клиента
+			// Это не работает в PHP 8, где socket - это пустой объект, поэетому == false
+			// а get_resource_type даёт ошибку, потому что аргумент не ресурс.
 			if(!$sock or (get_resource_type($sock) != 'Socket')) {
 				echo "Failed to accept incoming by: " . socket_strerror(socket_last_error($socket)) . "\n";
 				chkSocks($socket); 	// recreate masterSock
@@ -321,6 +325,7 @@ do {
 				}
 				continue;	// к следующему сокету
 			}
+			$lastTryToDataSocket = time();	// отметим, когда главный источник был жив
 			//echo "\nbuf from gpsd=|$buf|\n";		
 			$inInstrumentsData = instrumentsDataDecode($buf);	// одно сообщение конкретного класса из потока
 			// А оно надо? Здесь игнорируются устройства, не представленные на этапе установления соединения 
@@ -626,7 +631,7 @@ do {
 					$newDevices = connectToGPSD($socket);	// все будут ждать, пока тут всё подключится
 					if(!$newDevices) break;
 					$messages[$sockKey]['PUT'] = TRUE; 	//
-					$devicePresent = array_unique(array_merge($devicePresent,$newDevices));
+					$devicePresent = array_unique(array_merge($devicePresent,$newDevices));	// плоские массивы
 					//echo "\nCONNECT!\n";
 				}
 				break;
