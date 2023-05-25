@@ -519,7 +519,8 @@ if($pollWatchExist){	// есть режим WATCH, надо подготовит
 	// чтобы для всех подключенных клиентов создать данные один раз
 	$WATCH = null; $ais = null; $ALARM = null;	
 	$updatedTypes = array_intersect_assoc($instrumentsDataUpdated,$pollWatchExist);	// те обновленные типы данных, на которые есть подписка
-	//echo "\n updatedTypes:"; print_r($updatedTypes);
+	//echo "\n [updAndPrepare] updatedTypes:"; print_r($updatedTypes);
+	if(!$updatedTypes) return;	// нет ничего нового
 	foreach($updatedTypes as $updatedType => $v){
 		switch($updatedType){
 		case "TPV":
@@ -543,15 +544,25 @@ if($pollWatchExist){	// есть режим WATCH, надо подготовит
 		if(($now - @$sockData['lastSend'])<floatval(@$sockData['minPeriod'])) continue;	// частота отсылки данных
 		$messages[$socket]['lastSend'] = $now;
 
+		// Здесь каждому клиенту записывается своя копия данных
+		// причём для AIS -- все данные всех целей, даже если что-то изменилось только у одной.
 		//echo "socket=$socket; sockData:"; print_r($sockData);
+		$clientMessagesCount = count($messages[$socket]['output']);
+		//echo "для клиента $socket уже есть $clientMessagesCount сообщений, если их не уменьшится ещё {$messages[$socket]['outputSkip']} оборотов - начнём пропускать\n";
 		foreach($sockData['subscribe'] as $subscribe=>$v){
 			if($updatedTypes[$subscribe]){	// по этой подписке есть свежие данные
 				switch($subscribe){
 				case "TPV":
 					$messages[$socket]['output'][] = $WATCH;
+					//echo "sending TPV                     \n";
 					break;
 				case "AIS":
+					if($clientMessagesCount){
+						//echo "очередь слишком большая - вообще не шлём AIS  \n";
+						continue 2;	// вообще не будем слать AIS
+					}
 					$messages[$socket]['output'][] = $ais;
+					//echo "sending AIS socket=$socket;                     \n";
 					break;
 				case "ALARM":
 					$messages[$socket]['output'][] = $ALARM;
@@ -560,9 +571,6 @@ if($pollWatchExist){	// есть режим WATCH, надо подготовит
 			}
 		}
 	}
-	unset($WATCH);
-	unset($ais);
-	unset($ALARM);
 }
 } // end function updAndPrepare
 
@@ -599,6 +607,8 @@ case 'SKY':
 	break;
 case 'TPV':
 	// собирает данные по устройствам, в том числе и однородные
+	//echo "\ninInstrumentsData="; print_r($inInstrumentsData);echo"\n";
+	//echo "recieve TPV                     \n";
 	$dataTime = $now;
 	foreach($inInstrumentsData as $type => $value){ 	// обновим данные
 		// php создаёт вложенную структуру, это не python

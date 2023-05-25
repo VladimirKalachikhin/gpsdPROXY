@@ -5,6 +5,15 @@
 Кроме того, можно обратиться к демону с запросом ?WATCH={“enable”:true,“json”:true} и получить поток. Можно
 обратиться по протоколу websocket -- скорее всего, будет работать.
 
+Основная идея в том, что каждый ответ от демона, будь то по POLL или в потоке WATCH,
+содержит _всю_ имеющуюсю информацию как о себе, так и о целях AIS. В результате клиент
+может быть проще, и реагировать живее, потому что сразу имеет все изменения.
+Но зато если целей AIS много -- весь канал связи будет забит непрерывной передачей информации AIS,
+и координаты и сообщения об опасностях не пролезут.
+Имеется механизм, несколько купирующий эту проблему, суть которого в сокращении и прекращении
+передачи сообщений AIS, если обнаруживается затор сообщений. Если не обнаруживается - в интерфейсе
+GaladrielMap есть кнопочка.
+
 Daemon
 Caches TPV and AIS data from gpsd, and returns them on request ?POLL; of the gpsd protocol
 As side: daemon keeps instruments alive and power consuming.  
@@ -23,7 +32,7 @@ $ cgps localhost:3838
 $ telnet localhost 3838
 */
 /*
-Version 0.6.9
+Version 0.6.11
 
 0.6.9	support heading and course sepately
 0.6.5	restart by cron
@@ -137,6 +146,9 @@ $messages = array(); 	//
 'subscribe'=>'' // строка подписки, TPV,AIS,ALARM
 ]" номеров сокетов подключившихся клиентов
 */
+$rotateBeam = array("|","/","-","\\");
+$rBi = 0;
+
 $dataSourceZeroCNT = 0;	// счётчик пустых строк, пришедших подряд от источника данных
 $lastTryToDataSocket = time();	// момент последней попытки поднять основной источник данных
 $dataUpdated = 0;	// время последней коммуникации с источником данных, чтобы проверять свежесть данных не при каждом POLL
@@ -204,11 +216,15 @@ do {
 	}
 	// сокет всегда готов для чтения, есть там что-нибудь или нет, поэтому если в socksWrite что-то есть, socket_select никогда не ждёт, возвращая socksWrite неизменённым
 	$socksWrite = array(); 	// очистим массив 
+	//$socksWriteDummy = array(); 	// очистим массив 
 	foreach($messages as $n => $data){ 	// пишем только в сокеты, полученные от masterSock путём socket_accept
+		//echo " в sockets объект № $n является ";var_dump($sockets[$n]); echo "    \n";
 		if($data['output'])	$socksWrite[] = $sockets[$n]; 	// если есть, что писать -- добавим этот сокет в те, в которые будем писать
 	}
+	//$socksWriteDummy = $socksWrite;
 	//echo "\n socksRead:"; print_r($socksRead); echo "\n";
 	//echo "\n socksWrite:"; print_r($socksWrite); echo "\n";
+	//echo "\n socksWrite содержит ".count($socksWrite)." сокетов до socket_select\n";
 
 	//echo "\n\nНачало. Ждём, пока что-нибудь произойдёт\n";
 	// при тишине раз в  провернём цикл на предмет очистки от умерших сокетов и протухших данных
@@ -225,7 +241,11 @@ do {
 	$num_changed_sockets = socket_select($socksRead, $socksWrite, $socksError, $SocketTimeout); 	// должно ждать
 
 	//echo "\nnum_changed_sockets=$num_changed_sockets;      \n";
+	//echo "\n socksWrite содержит ".count($socksWrite)." сокетов после socket_select\n";
+	echo($rotateBeam[$rBi]);	// вращающаяся палка
 	echo "Has ".(count($sockets))." client socks, and master$info socks. Ready ".count($socksRead)." read and ".count($socksWrite)." write socks\r";
+	$rBi++;
+	if($rBi>=count($rotateBeam)) $rBi = 0;
 
 	// теперь в $socksRead только те сокеты, куда пришли данные, в $socksWrite -- те, откуда НЕ считали, т.е., не было, что читать, но они готовы для чтения
 	if (($num_changed_sockets === FALSE) or $socksError) { 	// Warning не перехватываются, включая supplied resource is not a valid Socket resource И смысл?
@@ -244,9 +264,20 @@ do {
 	//echo "\n Пишем в сокеты ".count($socksWrite)."\n"; //////////////////
 	// Здесь пишется в сокеты то, что попало в $messages на предыдущем обороте. Тогда соответствующие сокеты проверены на готовность, и готовые попали в $socksWrite. 
 	// в ['output'] всегда текст или массив из текста [0] и параметров передачи (для websocket)
+
+/*
+	$sCnt = 0;
+	foreach($messages as $n => $data){
+		if($data['output'])	$sCnt+=1;
+	}
+	if(!$socksWrite and $sCnt) echo "нет готовых для записи сокетов, хотя имеются сообщения для $sCnt клиентов   \n";
+*/
 	foreach($socksWrite as $socket){
+	//foreach($socksWriteDummy as $socket){
 		$n = array_search($socket,$sockets);	// 
+		//echo "\nДля клиента $n есть ".count($messages[$n]['output'])." сообщений         \n";
 		foreach($messages[$n]['output'] as &$msg) { 	// все накопленные сообщения. & для экономии памяти, но что-то не экономится...
+			//echo "длиной ".mb_strlen($msg,'8bit')." байт\n";
 			//echo "\nto $n:\n|$msg|\n";
 			$msgParams = null;
 			if(is_array($msg)) list($msg,$msgParams) = $msg;	// второй элемент -- тип фрейма
