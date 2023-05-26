@@ -32,7 +32,7 @@ $ cgps localhost:3838
 $ telnet localhost 3838
 */
 /*
-Version 0.6.11
+Version 0.6.12
 
 0.6.9	support heading and course sepately
 0.6.5	restart by cron
