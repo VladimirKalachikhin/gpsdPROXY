@@ -1,92 +1,93 @@
-[Русское описание](https://github.com/VladimirKalachikhin/gpsdPROXY/blob/master/README.ru-RU.md)  
+[In English](README.en.md)  
 # gpsdPROXY daemon [![License: CC BY-SA 4.0](https://img.shields.io/badge/License-CC%20BY--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-sa/4.0/)
-**version 0.6**
+**version 0.6**  
 
-It is very convenient to access the **[gpsd](https://gpsd.io/)** from web apps with asynchronous request [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) But there are problems:  
+Весьма удобно обращаться к **[gpsd](https://gpsd.io/)** из веб-приложений посредством команды [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) в произвольный момент времени, однако есть проблемы:
+  
+>**во-первых**, данные AIS недоступны в команде ?POLL;  
+>**во-вторых**, данные, отличные от тех, что отдаёт приёмник ГПС, могут не попасть в команду ?POLL;
 
->**First**, the AIS data not available by ?POLL; request.  
->**Second**, the data other them time-position-velocity (from GNSS reciever, in general) may not be included to ?POLL; request.
-
-The reason is that **gpsd** collect data during "epoch" from one GNSS fix recive to another. But "epoch" for AIS and instruments data is longer. So this data is not available for the ?POLL; request that returns the data collected during **gpsd** epoch in request moment.  
-Details and discussion see:  
+Причина в том, что **gpsd** собирает данные в течение "эпохи" от одного получения координат приёмником ГПС до другого. Но "эпоха" для данных AIS и приборов гораздо длиннее, и эти данные не попадают в запрос ?POLL;  
+С деталями и дискуссией по этому поводу можно ознакомиться по следующим ссылкам (англ.):  
 [https://lists.nongnu.org/archive/html/gpsd-users/2020-04/msg00093.html](https://lists.nongnu.org/archive/html/gpsd-users/2020-04/msg00093.html)  
 [https://lists.nongnu.org/archive/html/gpsd-users/2021-06/msg00017.html](https://lists.nongnu.org/archive/html/gpsd-users/2021-06/msg00017.html)  
 
-But this is a some strange software. Because the same functionality is present actually in **gpsd**: it collects a stream of data, aggregates it, and gives structured data on demand. The difference in the lifetime of the data. In **gpsdPROXY** it can be set explicitly and  separately by data type.  
-I believe that such functionality must be in **gpsd**. But there is no such thing.
+Однако надо заметить, что **gpsdPROXY** довольно странная программа, потому что она, в общем, делает ровно то же самое, что и собственно **gpsd**: собирает данные из потока, агрегирует их и отдаёт структурированные данные по требованию. Разница во времени жизни данных. В **gpsdPROXY** его можно задавать явным образом для каждого типа данных.
+Думаю, что такая функциональность должна быть непосредственно в **gpsd**. Но этого нет.  
+Зато можно применить **gpsdPROXY** для сбора данных от источников, в которых нет контроля достоверности данных. Например, от VenusOS, где нет совсем никакого контроля, и от SignalK, где есть хотя бы метка времени.
+Или просто использовать **gpsdPROXY** как websocket интерфейс к **gpsd**.  
+Дополнительно **gpsdPROXY** может получать и потом раздавать клиентам информацию "Человек за бортом", а также определять возможность столкновения с целями AIS.
 
-As a side, you may use **gpsdPROXY** to collect data from sources that do not have data lifetime control. For example, from VenusOS where there are no instruments data reliability control, or from SignalK, where there it timestamp at least.  
-Other side effect is storing MOB data and calculate of collision capabilities for AIS targets.  
-But you can just use **gpsdPROXY** as websocket proxy to **gpsd**.
+## Возможности
+Предлагаемый демон собирает данные AIS и всё то, что передаётся **gpsd** в секции TPV и хранит их в течение указанного пользователем времени. Получить данные можно запросом [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) протокола **gpsd**.  
+Таким образом, все данные AIS и данные эхолота и анемометра (и ГПС, конечно) становятся доступными в произвольный момент времени.
 
-## Features
-This cache/proxy daemon collect AIS and all TPV data from **gpsd** or other source during the user-defined lifetime and gives them by [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) request of the **gpsd** protocol.  
-So data from AIS stream and instruments such as echosounder and wind meter become available via ?POLL; request.  
+Дополнительно реализован и синхронная потоковая отдача данных, аналогичная режиму ?WATCH={"enable":true,"json":true} **gpsd**. 
 
-In addition, you may use ?WATCH={"enable":true,"json":true} stream, just like from original **gpsd**.   
-
-### Data source
-Normally, the gpspPROXY works with **gpsd** on the same or the other machine. In this case, the data is the most complete and reliable.
+### Источники данных
+Основным источником данных для gpsdPROXY является **gpsd**, запущенный на той же или другой машине. При использовании **gpsd** обеспечивается максимальная достоверность данных.  
+Однако, можно получать данные и из других источников, таких как:
 
 #### VenusOS
-The gpsdPROXY can work in VenusOS v2.80~38 or above. Or get data from any version via LAN. To do this, you need to enable "MQTT on LAN" feature. On VenusOS remote console go Settings -> Services -> MQTT on LAN (SSL) and Enable.
+gpsdPROXY может работать под управлением VenusOS по крайней мере начиная с версии v2.80~38, и во всяком случае на Raspberry Pi. Работа в устройствах Victron Energy не проверялась. Однако, gpsdPROXY может получать данные от любого устройства в сети, работающего под управлением VenusOS любой версии.  
+Для того, чтобы gpsdPROXY мог получать данные, нужно сделать следующие настройки в VenusOS:  
+В веб-консоли или на экране управления устройства открыть пункты меню Settings -> Services -> MQTT on LAN (SSL) и указать "Включить".
 
-##### limitations
-* VenusOS does not provide depth and AIS services.
-* The data provided by VenusOS are not reliable enough, so be careful.
+##### Ограничения
+* в VenusOS нет данных о глубине и нет данных AIS
+* данные, представляемые VenusOS не являются достаточно достоверными и должны использоваться с осторожностью
 
 #### Signal K
-The gpsdPROXY can get data from Signal K local or via LAN. If it possible, gpsdPROXY find Signal K by yourself via zeroconf service or jast on standard port.
+gpsdPROXY может получать данные от сервиса Signal K, работающего на той же машине, или в локальной сети. gpsdPROXY предпримет попытку самостоятельно найти Signal K посредством zeroconf, или обращаясь на стандартный порт. Но лучше сконфигурировать.
 
-##### Limitations
-Indeed, SignalK can be used from gpsdPROXY only local. Via LAN it's odd.
+##### Ограничения
+На самом деле gpsdPROXY к SignalK должен обращаться только локально. Через сеть -- оно странное.  
 
-### Collision detections
-The gpsdPROXY tries to determine the possibility of a collision according to the adopted simplified collision model based on the specified detection distance and the probability of deviations from the course.  
+### Обнаружение столкновений
+**gpsdPROXY** определяет возможность столкновений с целями AIS, а зависимости от их и от собственной скорости и указанного времени до события.  
 ![collision model](screenshots/s1.jpeg)<br>  
- Object `{"class":"ALARM","alarms":{"collisions":[]}}` contains a list of mmsi and position of vessels that have a risk of collision. The [GaladrielMap](https://github.com/VladimirKalachikhin/Galadriel-map) highlights such vessels on the map and indicates the direction to them on self cursor.
+Возможность столкновения вычисляется в соответствии с примитивной моделью движения, учитывающей, фактически, только возможные отклонения от курса. Однако ожидается, что эти вычисления не должны критически загрузить сервер даже при большом количестве целей AIS.  
+Объект ``{"class":"ALARM","alarms":{"collisions":[]}}` содержит список mmsi и координат потенциально опасных судов. [GaladrielMap](https://vladimirkalachikhin.github.io/Galadriel-map/README.ru-RU) обозначает такие объекты на карте специальным значком, а у курсора собственного положения рисует стрелочки с направлением на опасный объект.
 
-## Compatibility
-Linux, PHP < 8. The cretinous decisions made at PHP 8 do not allow the **gpsdPROXY** to work at PHP 8, and I do not want to follow these decisions.
+## Совместимось
+Linux, PHP < 8. Кретинские решения, принятые в PHP 8 не позволяют **gpsdPROXY** работать под PHP 8, а я не хочу следовать этим решениям.
 
-## Configure
-See _params.php_
+## Настройка
+См. файл _params.php_
 
-## Usage
+## Использование
 ```
 $ php gpsdPROXY.php
 ```
-Connect to the daemon on host:port from _params.php_ by **gpsd** protocol via BSD socket or websocket.
+К демону можно подключиться через BSD socket или websocket по адресу, указанному в _params.php_.
 
-### Control
-gpsdPROXY daemon checks whether the instance is already running, and exit if it.  
+## Управление
+Демон проверяет, не запущен ли он уже, и не запускается вторично.  
+Параметры команд **gpsd** не поддерживаются, зато имеются дополнительные параметры:  
 
-### gpsd Protocol extensions
-Added some new parameters for commands:
+* параметр "subscribe":"TPV|AIS" для команд ?POLL и ?WATCH={"enable":true,"json":true}.  
+Параметр указывает возвращать только данные TPV или AIS, но не то и другое. Например:  
+?POLL={"subscribe":"AIS"} возвращает класс "POLL" с данными "ais":[], вместо "tpv":[].
+* параметр "minPeriod":"", в сек. для команды WATCH={"enable":true,"json":true}. Нормально данные отсылаются так часто, как они приходят от **gpsd**. Указание этого параметра заставляет демон отсылать данные не чаще указанного количества секунд. Например, команда:  
+WATCH={"enable":true,"json":true,"minPeriod":"2"} посылает данные каждые две секунды, или реже, по мере получения данных.
 
-* "subscribe":"TPV[,AIS[,ALARM]]" parameter for ?POLL and ?WATCH={"enable":true,"json":true} commands.  
-This indicates to return TPV or AIS or ALARM data only, or a combination of them. Default - all.  
-For example: `?POLL={"subscribe":"AIS"}` return class "POLL" with "ais":[], not with "tpv":[].
-* "minPeriod":"", sec. for WATCH={"enable":true,"json":true} command. Normally the data is sent at the same speed as they come from sensors. Setting this allow get data not more often than after the specified number of seconds. For example:  
-WATCH={"enable":true,"json":true,"minPeriod":"2"} sends data every 2 seconds.
+## Результат
+Демон возвращает данные, как описано в документации к **gpsd**, за исключением:  
 
-### Output
-The output same as described for **gpsd**, exept:  
+* ответ DEVICES на команду WATCH содержит только одно устройство -- сам демон. Как следствие -- не надо объединять сходные данные от разных устройств: это уже делает демон.
+* массив _sky_ в объекте POLL пуст
+* объект AIS отсутствует в ответе команды WATCH, вместо этого посылается отдельный объект
+* в объект POLL и ответ команды WATCH добавлен массив _ais_  с ключами mmsi и данными в формате, описанном в [AIS DUMP FORMATS](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_ais_dump_formats), за исключением:
 
-* The DEVICES response of the WATCH command include one device only: the daemon self. So no need to merge data from similar devices -- the daemon do it.
-* _sky_ array in POLL object is empty.
-* AIS object missing in WATCH response, instead, this object is sent separately.
-* Added _ais_ array to POLL object and WATCH response with key = mmsi and value as described [AIS DUMP FORMATS](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_ais_dump_formats) section, except:  
+>* скорость в м/сек
+>* координаты в десятичных градусах
+>* углы в градусах
+>* осадка в метрах
+>* длина в метрах
+>* ширина в метрах
+>* поле 'second' отсутствует, но есть поле 'timestamp' с временем unix  
 
->* Speed in m/sec
->* Location in degrees
->* Angles in degrees
->* Draught in meters
->* Length in meters
->* Beam in meters
->* No 'second' field, but has 'timestamp' as unix time.
-
-### Typical client code
+### Пример клиентского кода
 ```
 webSocket = new WebSocket("ws://"+gpsdProxyHost+":"+gpsdProxyPort);
 
@@ -143,9 +144,12 @@ webSocket.onerror = function(error) {
 
 ```
 
-## Support
-[Forum](https://github.com/VladimirKalachikhin/Galadriel-map/discussions)
 
-The forum will be more lively if you make a donation at [ЮMoney](https://sobe.ru/na/galadrielmap)
+## Поддержка
+[Сообщество ВКонтакте](https://vk.com/club212992298)
 
-[Paid personal consulting](https://kwork.ru/it-support/20093939/galadrielmap-installation-configuration-and-usage-consulting)  
+[Индивидуальная платная консультация](https://kwork.ru/training-consulting/20093293/konsultatsii-po-ustanovke-i-ispolzovaniyu-galadrielmap)
+
+
+Вы можете сделать пожертвование через [ЮМани](https://sobe.ru/na/galadrielmap).
+
