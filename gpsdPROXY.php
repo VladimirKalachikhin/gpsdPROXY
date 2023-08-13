@@ -204,6 +204,7 @@ do {
 			$info = " and $dataSourceHumanName";
 		}	// иначе $dataSourceConnectionObject == null, и через оборот по таймауту снова будет предпринята попытка открыть главный источник данных
 	}
+	
 	else {	// клиентов нет -- можно закрыть соединеие с источником данных, чтобы он заснул приёмник гпс.
 		//echo "\nNo clients present. noClientTimeout=$noClientTimeout; lastClientExchange=".(time()-$lastClientExchange)."\n";
 		if($noClientTimeout and ((time()-$lastClientExchange)>=$noClientTimeout)){
@@ -214,6 +215,7 @@ do {
 			$info = "";
 		}
 	}
+	
 	// сокет всегда готов для чтения, есть там что-нибудь или нет, поэтому если в socksWrite что-то есть, socket_select никогда не ждёт, возвращая socksWrite неизменённым
 	$socksWrite = array(); 	// очистим массив 
 	//$socksWriteDummy = array(); 	// очистим массив 

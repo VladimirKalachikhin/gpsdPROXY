@@ -687,6 +687,8 @@ case 'AIS':
 				$instrumentsData['AIS'][$vehicle]['data']['status'] = navigationStatusEncode($instrumentsData['AIS'][$vehicle]['data']['status_text']);
 			}
 			else $instrumentsData['AIS'][$vehicle]['data']['status'] = (int)filter_var($inInstrumentsData['status'],FILTER_SANITIZE_NUMBER_INT); 	// Navigational status 0 = under way using engine, 1 = at anchor, 2 = not under command, 3 = restricted maneuverability, 4 = constrained by her draught, 5 = moored, 6 = aground, 7 = engaged in fishing, 8 = under way sailing, 9 = reserved for future amendment of navigational status for ships carrying DG, HS, or MP, or IMO hazard or pollutant category C, high speed craft (HSC), 10 = reserved for future amendment of navigational status for ships carrying dangerous goods (DG), harmful substances (HS) or marine pollutants (MP), or IMO hazard or pollutant category A, wing in ground (WIG);11 = power-driven vessel towing astern (regional use), 12 = power-driven vessel pushing ahead or towing alongside (regional use); 13 = reserved for future use, 14 = AIS-SART (active), MOB-AIS, EPIRB-AIS 15 = undefined = default (also used by AIS-SART, MOB-AIS and EPIRB-AIS under test)
+			if($instrumentsData['AIS'][$vehicle]['data']['status'] === 0 and (!isset($instrumentsData['AIS'][$vehicle]['data']['speed']))) $instrumentsData['AIS'][$vehicle]['data']['status'] = null;	// они сплошь и рядом ставят статус 0 для не движущегося судна
+			if($instrumentsData['AIS'][$vehicle]['data']['status'] == 15) $instrumentsData['AIS'][$vehicle]['data']['status'] = null;
 			$instrumentsData['AIS'][$vehicle]['cachedTime']['status'] = $now;
 			//echo "inInstrumentsData['status']={$inInstrumentsData['status']}; status={$instrumentsData['AIS'][$vehicle]['data']['status']};\n";
 		}
@@ -705,6 +707,7 @@ case 'AIS':
 			else {
 				$instrumentsData['AIS'][$vehicle]['data']['turn'] = (int)filter_var($inInstrumentsData['turn'],FILTER_SANITIZE_NUMBER_INT); 	// тут чёта сложное...  Rate of turn ROTAIS 0 to +126 = turning right at up to 708° per min or higher 0 to –126 = turning left at up to 708° per min or higher Values between 0 and 708° per min coded by ROTAIS = 4.733 SQRT(ROTsensor) degrees per min where  ROTsensor is the Rate of Turn as input by an external Rate of Turn Indicator (TI). ROTAIS is rounded to the nearest integer value. +127 = turning right at more than 5° per 30 s (No TI available) –127 = turning left at more than 5° per 30 s (No TI available) –128 (80 hex) indicates no turn information available (default). ROT data should not be derived from COG information.
 			}
+			if($instrumentsData['AIS'][$vehicle]['data']['turn'] == 0x80) $instrumentsData['AIS'][$vehicle]['data']['turn'] = null;	// -128 ?
 			$instrumentsData['AIS'][$vehicle]['cachedTime']['turn'] = $now;
 			//echo "$vehicle inInstrumentsData['turn']={$inInstrumentsData['turn']}; turn={$instrumentsData['AIS'][$vehicle]['data']['turn']};                 \n";
 		}
@@ -818,6 +821,7 @@ case 'AIS':
 		if(isset($inInstrumentsData['maneuver'])){
 			if($inInstrumentsData['scaled']) $instrumentsData['AIS'][$vehicle]['data']['maneuver'] = $inInstrumentsData['maneuver']; 	// данные уже приведены к человеческому виду
 			else $instrumentsData['AIS'][$vehicle]['data']['maneuver'] = (int)filter_var($inInstrumentsData['maneuver'],FILTER_SANITIZE_NUMBER_INT); 	// Special manoeuvre indicator 0 = not available = default 1 = not engaged in special manoeuvre 2 = engaged in special manoeuvre (i.e. regional passing arrangement on Inland Waterway)
+			if($instrumentsData['AIS'][$vehicle]['data']['maneuver'] === 0) $instrumentsData['AIS'][$vehicle]['data']['maneuver'] = NULL;
 			$instrumentsData['AIS'][$vehicle]['cachedTime']['maneuver'] = $now;
 		}
 		if(isset($inInstrumentsData['raim'])) $instrumentsData['AIS'][$vehicle]['data']['raim'] = (bool)filter_var($inInstrumentsData['raim'],FILTER_SANITIZE_NUMBER_INT); 	// RAIM-flag Receiver autonomous integrity monitoring (RAIM) flag of electronic position fixing device; 0 = RAIM not in use = default; 1 = RAIM in use. See Table 50
@@ -827,7 +831,10 @@ case 'AIS':
 	case 5: 	// http://www.e-navigation.nl/content/ship-static-and-voyage-related-data
 	case 24: 	// Vendor ID не поддерживается http://www.e-navigation.nl/content/static-data-report
 		//echo "JSON inInstrumentsData: \n"; print_r($inInstrumentsData); echo "\n";
-		if(isset($inInstrumentsData['imo'])) $instrumentsData['AIS'][$vehicle]['data']['imo'] = (string)$inInstrumentsData['imo']; 	// IMO number 0 = not available = default – Not applicable to SAR aircraft 0000000001-0000999999 not used 0001000000-0009999999 = valid IMO number; 0010000000-1073741823 = official flag state number.
+		if(isset($inInstrumentsData['imo'])) {
+			$instrumentsData['AIS'][$vehicle]['data']['imo'] = (string)$inInstrumentsData['imo']; 	// IMO number 0 = not available = default – Not applicable to SAR aircraft 0000000001-0000999999 not used 0001000000-0009999999 = valid IMO number; 0010000000-1073741823 = official flag state number.
+			if($instrumentsData['AIS'][$vehicle]['data']['imo'] === '0') $instrumentsData['AIS'][$vehicle]['data']['imo'] = NULL;
+		}
 		if(isset($inInstrumentsData['ais_version'])) $instrumentsData['AIS'][$vehicle]['data']['ais_version'] = (int)filter_var($inInstrumentsData['ais_version'],FILTER_SANITIZE_NUMBER_INT); 	// AIS version indicator 0 = station compliant with Recommendation ITU-R M.1371-1; 1 = station compliant with Recommendation ITU-R M.1371-3 (or later); 2 = station compliant with Recommendation ITU-R M.1371-5 (or later); 3 = station compliant with future editions
 		if(isset($inInstrumentsData['callsign'])){
 			if($inInstrumentsData['callsign']=='@@@@@@@') $instrumentsData['AIS'][$vehicle]['data']['callsign'] = NULL;
@@ -845,20 +852,37 @@ case 'AIS':
 		if(isset($inInstrumentsData['to_stern'])) $instrumentsData['AIS'][$vehicle]['data']['to_stern'] = (float)filter_var($inInstrumentsData['to_stern'],FILTER_SANITIZE_NUMBER_FLOAT,FILTER_FLAG_ALLOW_FRACTION); 	// Reference point for reported position.
 		if(isset($inInstrumentsData['to_port'])) $instrumentsData['AIS'][$vehicle]['data']['to_port'] = (float)filter_var($inInstrumentsData['to_port'],FILTER_SANITIZE_NUMBER_FLOAT,FILTER_FLAG_ALLOW_FRACTION); 	// Reference point for reported position.
 		if(isset($inInstrumentsData['to_starboard'])) $instrumentsData['AIS'][$vehicle]['data']['to_starboard'] = (float)filter_var($inInstrumentsData['to_starboard'],FILTER_SANITIZE_NUMBER_FLOAT,FILTER_FLAG_ALLOW_FRACTION); 	// Reference point for reported position.
-		if(isset($inInstrumentsData['epfd'])) $instrumentsData['AIS'][$vehicle]['data']['epfd'] = (int)filter_var($inInstrumentsData['epfd'],FILTER_SANITIZE_NUMBER_INT); 	// Type of electronic position fixing device. 0 = undefined (default) 1 = GPS 2 = GLONASS 3 = combined GPS/GLONASS 4 = Loran-C 5 = Chayka 6 = integrated navigation system 7 = surveyed 8 = Galileo, 9-14 = not used 15 = internal GNSS
-		if(isset($inInstrumentsData['epfd_text'])) $instrumentsData['AIS'][$vehicle]['data']['epfd_text'] = (string)$inInstrumentsData['epfd_text']; 	// 
-		if(isset($inInstrumentsData['eta'])) $instrumentsData['AIS'][$vehicle]['data']['eta'] = (string)$inInstrumentsData['eta']; 	// ETA Estimated time of arrival; MMDDHHMM UTC Bits 19-16: month; 1-12; 0 = not available = default  Bits 15-11: day; 1-31; 0 = not available = default Bits 10-6: hour; 0-23; 24 = not available = default Bits 5-0: minute; 0-59; 60 = not available = default For SAR aircraft, the use of this field may be decided by the responsible administration
+		if($instrumentsData['AIS'][$vehicle]['data']['to_bow']===0 and $instrumentsData['AIS'][$vehicle]['data']['to_stern']===0 and $instrumentsData['AIS'][$vehicle]['data']['to_port']===0 and $instrumentsData['AIS'][$vehicle]['data']['to_starboard']===0){
+			$instrumentsData['AIS'][$vehicle]['data']['to_bow'] = null;
+			$instrumentsData['AIS'][$vehicle]['data']['to_stern'] = null;
+			$instrumentsData['AIS'][$vehicle]['data']['to_port'] = null;
+			$instrumentsData['AIS'][$vehicle]['data']['to_starboard'] = null;
+		}
+		if(isset($inInstrumentsData['epfd'])) {
+			$instrumentsData['AIS'][$vehicle]['data']['epfd'] = (int)filter_var($inInstrumentsData['epfd'],FILTER_SANITIZE_NUMBER_INT); 	// Type of electronic position fixing device. 0 = undefined (default) 1 = GPS 2 = GLONASS 3 = combined GPS/GLONASS 4 = Loran-C 5 = Chayka 6 = integrated navigation system 7 = surveyed 8 = Galileo, 9-14 = not used 15 = internal GNSS
+			if($instrumentsData['AIS'][$vehicle]['data']['epfd'] == 0) $instrumentsData['AIS'][$vehicle]['data']['epfd'] = null;
+		}
+		//if(isset($inInstrumentsData['epfd_text'])) $instrumentsData['AIS'][$vehicle]['data']['epfd_text'] = (string)$inInstrumentsData['epfd_text']; 	// 
+		if(isset($inInstrumentsData['eta'])) {
+			$instrumentsData['AIS'][$vehicle]['data']['eta'] = (string)$inInstrumentsData['eta']; 	// ETA Estimated time of arrival; MMDDHHMM UTC Bits 19-16: month; 1-12; 0 = not available = default  Bits 15-11: day; 1-31; 0 = not available = default Bits 10-6: hour; 0-23; 24 = not available = default Bits 5-0: minute; 0-59; 60 = not available = default For SAR aircraft, the use of this field may be decided by the responsible administration
+			if($instrumentsData['AIS'][$vehicle]['data']['eta'] === '0') $instrumentsData['AIS'][$vehicle]['data']['eta'] = null;
+		}
 		if($inInstrumentsData['draught']){	// осадка не может быть 0
 		 	// данные уже приведены к человеческому виду
 			if($inInstrumentsData['scaled']) $instrumentsData['AIS'][$vehicle]['data']['draught'] = $inInstrumentsData['draught']; 	// осадка в метрах
 			else $instrumentsData['AIS'][$vehicle]['data']['draught'] = (float)filter_var($inInstrumentsData['draught'],FILTER_SANITIZE_NUMBER_INT)/10; 	// Maximum present static draught In m ( 1/10 m, 255 = draught 25.5 m or greater, 0 = not available = default; in accordance with IMO Resolution A.851 Not applicable to SAR aircraft, should be set to 0)
+			if($instrumentsData['AIS'][$vehicle]['data']['draught'] == 0) $instrumentsData['AIS'][$vehicle]['data']['draught'] = null;
 			//echo "inInstrumentsData['draught']={$inInstrumentsData['draught']}; draught={$instrumentsData['AIS'][$vehicle]['data']['draught']};\n\n";
 		}
 		if(isset($inInstrumentsData['destination'])){
 			$instrumentsData['AIS'][$vehicle]['data']['destination'] = filter_var($inInstrumentsData['destination'],FILTER_SANITIZE_STRING); 	// Destination Maximum 20 characters using 6-bit ASCII; @@@@@@@@@@@@@@@@@@@@ = not available For SAR aircraft, the use of this field may be decided by the responsible administration
+			if($instrumentsData['AIS'][$vehicle]['data']['destination'] == '@@@@@@@@@@@@@@@@@@@@') $instrumentsData['AIS'][$vehicle]['data']['destination'] = null;
 			$instrumentsData['AIS'][$vehicle]['cachedTime']['destination'] = $now;
 		}
-		if(isset($inInstrumentsData['dte'])) $instrumentsData['AIS'][$vehicle]['data']['dte'] = (int)filter_var($inInstrumentsData['dte'],FILTER_SANITIZE_NUMBER_INT); 	// DTE Data terminal equipment (DTE) ready (0 = available, 1 = not available = default) (see § 3.3.1)
+		if(isset($inInstrumentsData['dte'])) {
+			$instrumentsData['AIS'][$vehicle]['data']['dte'] = (int)filter_var($inInstrumentsData['dte'],FILTER_SANITIZE_NUMBER_INT); 	// DTE Data terminal equipment (DTE) ready (0 = available, 1 = not available = default) (see § 3.3.1)
+			if($instrumentsData['AIS'][$vehicle]['data']['dte'] == 1) $instrumentsData['AIS'][$vehicle]['data']['dte'] = null;
+		}
 		$instrumentsDataUpdated['AIS'] = TRUE;
 		//break; 	// comment break чтобы netAIS мог посылать информацию типа 5,24 и 6,8 в сообщени типа 1
 	case 6: 	// http://www.e-navigation.nl/asm  http://192.168.10.10/gpsd/AIVDM.adoc
@@ -873,21 +897,27 @@ case 'AIS':
 		if(isset($inInstrumentsData['length'])){
 			if($inInstrumentsData['scaled']) $instrumentsData['AIS'][$vehicle]['data']['length'] = $inInstrumentsData['length']/10;	// Длина всё равно в дециметрах!!!
 			else $instrumentsData['AIS'][$vehicle]['data']['length'] = (float)filter_var($inInstrumentsData['length'],FILTER_SANITIZE_NUMBER_INT)/10; 	// Length of ship in m
+			if(!$instrumentsData['AIS'][$vehicle]['data']['length']) $instrumentsData['AIS'][$vehicle]['data']['length'] = null;
 		}
 		if(isset($inInstrumentsData['beam'])) {
 			if($inInstrumentsData['scaled']) $instrumentsData['AIS'][$vehicle]['data']['beam'] = $inInstrumentsData['beam']/10;	// Ширина всё равно в дециметрах!!!
 			else $instrumentsData['AIS'][$vehicle]['data']['beam'] = (float)filter_var($inInstrumentsData['beam'],FILTER_SANITIZE_NUMBER_INT)/10; 	// Beam of ship in m ширина, длина бимса.
+			if(!$instrumentsData['AIS'][$vehicle]['data']['beam']) $instrumentsData['AIS'][$vehicle]['data']['beam'] = null;
 		}
 		if(isset($inInstrumentsData['shiptype']) and !$instrumentsData['AIS'][$vehicle]['data']['shiptype']) $instrumentsData['AIS'][$vehicle]['data']['shiptype'] = (string)$inInstrumentsData['shiptype']; 	// Ship/combination type ERI Classification В какой из посылок тип правильный - неизвестно, поэтому будем брать только из одной
 		//if(isset($inInstrumentsData['shiptype_text']) and !$instrumentsData['AIS'][$vehicle]['data']['shiptype_text'])$instrumentsData['AIS'][$vehicle]['data']['shiptype_text'] = filter_var($inInstrumentsData['shiptype_text'],FILTER_SANITIZE_STRING); 	// 
 		if(isset($inInstrumentsData['hazard'])) $instrumentsData['AIS'][$vehicle]['data']['hazard'] = (int)filter_var($inInstrumentsData['hazard'],FILTER_SANITIZE_NUMBER_INT); 	// Hazardous cargo | 0 | 0 blue cones/lights | 1 | 1 blue cone/light | 2 | 2 blue cones/lights | 3 | 3 blue cones/lights | 4 | 4 B-Flag | 5 | Unknown (default)
-		if(isset($inInstrumentsData['hazard_text'])) $instrumentsData['AIS'][$vehicle]['data']['hazard_text'] = filter_var($inInstrumentsData['hazard_text'],FILTER_SANITIZE_STRING); 	// 
+		//if(isset($inInstrumentsData['hazard_text'])) $instrumentsData['AIS'][$vehicle]['data']['hazard_text'] = filter_var($inInstrumentsData['hazard_text'],FILTER_SANITIZE_STRING); 	// 
 		if($inInstrumentsData['draught'] and !$instrumentsData['AIS'][$vehicle]['data']['draught']) {
 			if($inInstrumentsData['scaled']) $instrumentsData['AIS'][$vehicle]['data']['draught'] = $inInstrumentsData['draught']/100;	// Осадка всё равно в сантиметрах!!!
 			else $instrumentsData['AIS'][$vehicle]['data']['draught'] = (float)filter_var($inInstrumentsData['draught'],FILTER_SANITIZE_NUMBER_INT)/100; 	// Draught in m ( 1-200 * 0.01m, default 0) осадка
+			if(!$instrumentsData['AIS'][$vehicle]['data']['draught']) $instrumentsData['AIS'][$vehicle]['data']['draught'] = null;
 		}
-		if(isset($inInstrumentsData['loaded'])) $instrumentsData['AIS'][$vehicle]['data']['loaded'] = (int)filter_var($inInstrumentsData['loaded'],FILTER_SANITIZE_NUMBER_INT); 	// Loaded/Unloaded | 0 | N/A (default) | 1 | Unloaded | 2 | Loaded
-		if(isset($inInstrumentsData['loaded_text'])) $instrumentsData['AIS'][$vehicle]['data']['loaded_text'] = filter_var($inInstrumentsData['loaded_text'],FILTER_SANITIZE_STRING); 	// 
+		if(isset($inInstrumentsData['loaded'])) {
+			$instrumentsData['AIS'][$vehicle]['data']['loaded'] = (int)filter_var($inInstrumentsData['loaded'],FILTER_SANITIZE_NUMBER_INT); 	// Loaded/Unloaded | 0 | N/A (default) | 1 | Unloaded | 2 | Loaded
+			if(!$instrumentsData['AIS'][$vehicle]['data']['loaded']) $instrumentsData['AIS'][$vehicle]['data']['loaded'] = null;
+		}
+		//if(isset($inInstrumentsData['loaded_text'])) $instrumentsData['AIS'][$vehicle]['data']['loaded_text'] = filter_var($inInstrumentsData['loaded_text'],FILTER_SANITIZE_STRING); 	// 
 		if(isset($inInstrumentsData['speed_q'])) $instrumentsData['AIS'][$vehicle]['data']['speed_q'] = (int)filter_var($inInstrumentsData['speed_q'],FILTER_SANITIZE_NUMBER_INT); 	// Speed inf. quality 0 = low/GNSS (default) 1 = high
 		if(isset($inInstrumentsData['course_q'])) $instrumentsData['AIS'][$vehicle]['data']['course_q'] = (int)filter_var($inInstrumentsData['course_q'],FILTER_SANITIZE_NUMBER_INT); 	// Course inf. quality 0 = low/GNSS (default) 1 = high
 		if(isset($inInstrumentsData['heading_q'])) $instrumentsData['AIS'][$vehicle]['data']['heading_q'] = (int)filter_var($inInstrumentsData['heading_q'],FILTER_SANITIZE_NUMBER_INT); 	// Heading inf. quality 0 = low/GNSS (default) 1 = high
