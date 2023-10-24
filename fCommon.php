@@ -159,7 +159,7 @@ $dataType = $SEEN_GPS | $SEEN_AIS; 	// данные от каких прибор
 do { 	// при каскадном соединении нескольких gpsd заголовков может быть много
 	$zeroCount = 0;	// счётчик пустых строк
 	do {	// крутиться до принятия строки или до 10 пустых строк
-		$buf = @socket_read($gpsdSock, 2048, PHP_NORMAL_READ); 	// читаем
+		$buf = @socket_read($gpsdSock, 2048, PHP_NORMAL_READ); 	// читаем. Здесь 2048 байт достаточно: принимаются только короткие сообщения.
 		//echo "\nfCommon.php [connectToGPSD] buf:$buf| \n$zeroCount\n";
 		if($buf === FALSE) { 	// gpsd умер
 			//echo "\nFailed to read data from gpsd: " . socket_strerror(socket_last_error()) . "\n";

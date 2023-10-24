@@ -32,7 +32,7 @@ $ cgps localhost:3838
 $ telnet localhost 3838
 */
 /*
-Version 0.6.12
+Version 0.6.13
 
 0.6.9	support heading and course sepately
 0.6.5	restart by cron
@@ -335,7 +335,7 @@ do {
 			// и могут быть клиенты, передающие данные потоко: $messages[$sockKey]['PUT'] == TRUE
 			// которые образовались по команде CONNECT. Для них то же самое ниже.
 			// Ещё updAndPrepare вызывается по приходу команды UPDATE для аргументов этой команды.
-			$buf = @socket_read($socket, 2048, PHP_NORMAL_READ); 	// читаем построчно, gpsd передаёт сообщение целиком в одной строке
+			$buf = @socket_read($socket, 1048576, PHP_NORMAL_READ); 	// читаем построчно, gpsd передаёт сообщение целиком в одной строке
 			if($err = socket_last_error($socket)) { 	// с сокетом проблемы
 				switch($err){
 				case 114:	// Operation already in progress
@@ -381,7 +381,10 @@ do {
 			$buf = @socket_read($socket, 1048576,  PHP_BINARY_READ); 	// читаем до 1MB
 		}
 		else {
-			$buf = @socket_read($socket, 2048, PHP_NORMAL_READ); 	// читаем построчно
+			// Считаем, что буфер указан достаточно большой, и всё сообщение считывается за раз.
+			// Трудно представить нормальную ситуацию, когда это было бы не так.
+			// А если кто решит зафлудить, то он обломается: никогда не будет принято больше буфера.
+			$buf = @socket_read($socket, 1048576, PHP_NORMAL_READ); 	// читаем построчно
 			// строки могут разделяться как \n, так и \r\n, но при PHP_NORMAL_READ reading stops at \n or \r,
 			// соотвественно, сперва строка заканчивается на \r, а после следующего чтения - на \r\n,
 			// и только тогда можно заменить. В результате строки составного сообщения (заголовки, например)
@@ -415,9 +418,10 @@ do {
 			unset($socket);
 		    continue;	// к следующему сокету
 		}
-		//echo "\nПРИНЯТО ОТ КЛИЕНТА # $sockKey $socket ".mb_strlen($buf,'8bit')." байт\n";
+		//echo "\nПРИНЯТО ОТ КЛИЕНТА # $sockKey $socket ".mb_strlen($buf,'8bit')." байт, PUT={$messages[$sockKey]['PUT']};\n";
 		//print_r($messages[$sockKey]);
 		if(@$messages[$sockKey]['PUT'] == TRUE){ 	// прочитали из соединения с источником данных
+			//echo "\n buf from other # $sockKey $socket: $buf \n";
 			$inInstrumentsData = instrumentsDataDecode($buf);	// одно сообщение конкретного класса из потока
 			//echo "\n inInstrumentsData from other \n"; print_r($inInstrumentsData);
 			updAndPrepare($inInstrumentsData); // обновим кеш и отправим данные для режима WATCH
