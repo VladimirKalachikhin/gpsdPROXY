@@ -1,4 +1,4 @@
-[In English](README.en.md)  
+[In English](https://github.com/VladimirKalachikhin/gpsdPROXY/blob/master/README.md)  
 # gpsdPROXY daemon [![License: CC BY-NC-SA 4.0](screenshots/Cc-by-nc-sa_icon.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en)
 **version 0.6**  
 
@@ -47,7 +47,7 @@ gpsdPROXY может получать данные от сервиса Signal K,
 **gpsdPROXY** определяет возможность столкновений с целями AIS, а зависимости от их и от собственной скорости и указанного времени до события.  
 ![collision model](screenshots/s1.jpeg)<br>  
 Возможность столкновения вычисляется в соответствии с примитивной моделью движения, учитывающей, фактически, только возможные отклонения от курса. Однако ожидается, что эти вычисления не должны критически загрузить сервер даже при большом количестве целей AIS.  
-Объект ``{"class":"ALARM","alarms":{"collisions":[]}}` содержит список mmsi и координат потенциально опасных судов. [GaladrielMap](https://hub.mos.ru/v.kalachihin/GaladrielMap) обозначает такие объекты на карте специальным значком, а у курсора собственного положения рисует стрелочки с направлением на опасный объект.
+Объект ``{"class":"ALARM","alarms":{"collisions":[]}}` содержит список mmsi и координат потенциально опасных судов. [GaladrielMap](https://vladimirkalachikhin.github.io/Galadriel-map/README.ru-RU) обозначает такие объекты на карте специальным значком, а у курсора собственного положения рисует стрелочки с направлением на опасный объект.
 
 ## Совместимось
 Linux, PHP < 8. Кретинские решения, принятые в PHP 8 не позволяют **gpsdPROXY** работать под PHP 8, а я не хочу следовать этим решениям.
@@ -146,10 +146,10 @@ webSocket.onerror = function(error) {
 
 
 ## Поддержка
-[Сообщество ВКонтакте](https://vk.com/club212992298)
+[Форум](https://github.com/VladimirKalachikhin/Galadriel-map/discussions)
 
-[Индивидуальная платная консультация](https://kwork.ru/training-consulting/20093293/konsultatsii-po-ustanovke-i-ispolzovaniyu-galadrielmap)
+Форум будет живее, если вы сделаете пожертвование на [ЮМани](https://sobe.ru/na/galadrielmap).
 
+Вы можете получить [индивидуальную платную консультацию](https://kwork.ru/training-consulting/20093293/konsultatsii-po-ustanovke-i-ispolzovaniyu-galadrielmap) по использованию gpsdPROXY.
 
-Вы можете сделать пожертвование через [ЮМани](https://sobe.ru/na/galadrielmap).
 
