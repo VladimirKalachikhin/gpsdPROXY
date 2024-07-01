@@ -32,7 +32,7 @@ $ cgps localhost:3838
 $ telnet localhost 3838
 */
 /*
-Version 0.6.13
+Version 0.6.14
 
 0.6.9	support heading and course sepately
 0.6.5	restart by cron
@@ -126,9 +126,13 @@ $masterSock = createSocketServer($gpsdProxyHost,$gpsdProxyPort,20); 	// Соед
 // Подключимся к источнику данных
 echo "Begin: socket to $dataSourceHumanName opened, do handshaking                                   \n";
 $devicePresent = dataSourceConnect($dataSourceConnectionObject);	// реально $devicePresent нигде не используются, кроме как ниже. Можно использовать как-нибудь?
+if(!$devicePresent) $devicePresent = [];	// может не быть основного источника данных
 //var_dump($devicePresent);
-if($devicePresent===FALSE) exit("Handshaking fail: $dataSourceHumanName on $dataSourceHost:$dataSourcePort not answer, bye     \n");
-echo "Begin: handshaked, will recieve data from $dataSourceHumanName\n";
+// Но там может быть какой-то другой источник данных через CONNECT, как это
+// делает netAISclient и inetAIS или через UPDATE
+// поэтому комментируем следующие две строки
+//if($devicePresent===FALSE) exit("Handshaking fail: $dataSourceHumanName on $dataSourceHost:$dataSourcePort not answer, bye     \n");
+//echo "Begin: handshaked, will recieve data from $dataSourceHumanName\n";
 if(!$devicePresent) echo"but no required devices present     \n";
 
 // После того, как стало понятно, что всё нормально, удалим себя из cron
@@ -152,6 +156,11 @@ $rBi = 0;
 $dataSourceZeroCNT = 0;	// счётчик пустых строк, пришедших подряд от источника данных
 $lastTryToDataSocket = time();	// момент последней попытки поднять основной источник данных
 $dataUpdated = 0;	// время последней коммуникации с источником данных, чтобы проверять свежесть данных не при каждом POLL
+// флаг-костыль для обозначения ситуации, когда основной источник данных вроде жив,
+// но выдаёт не то.
+// Выставляется пока только в ситуации получения длинной последовательности пустых строк. Это
+// реглярно случается с gpsd, когда у него нет данных, а его спрашивают.
+$mainSourceHasStranges = false;	
 
 $socksRead = array(); $socksWrite = array(); $socksError = array(); 	// массивы для изменивших состояние сокетов (с учётом, что они в socket_select() по ссылке, и NULL прямо указать нельзя)
 echo "gpsdPROXY ready to connection on $gpsdProxyHost:$gpsdProxyPort\n";
@@ -170,7 +179,7 @@ do {
 	// для того, чтобы он (gpsd, да) переконнектился к источнику данных -- его надо пнуть
 	//if(!$dataSourceConnectionObject){	
 		if((time()-$lastTryToDataSocket)>=10*$SocketTimeout){	// чтобы не каждый оборот, иначе никакакой handshaking никогда не завершится
-			echo "\nNo main data source. Trying to reopen.    \n";
+			echo "No main data source. Trying to reopen.                                 \n";
 			chkSocks($dataSourceConnectionObject);	// а как ещё узнать, что сокет закрыт? Массив error socket_select не помогает.
 			if(!$dataSourceConnectionObject){
 				// Определим, к кому подключаться для получения данных
@@ -182,7 +191,9 @@ do {
 				exit("Main data source died, I die too. But Cron will revive me.\n");
 			}
 			$lastTryToDataSocket = time();
-			if(!$dataSourceConnectionObject) echo "The reopening of the main data source failed. I'll try it later.\n";
+			if($dataSourceConnectionObject) $mainSourceHasStranges = false;
+			else echo "The reopening of the main data source failed. I'll try it later.\n";
+			
 		}
 	//}
 	
@@ -191,10 +202,19 @@ do {
 	$socksError = $sockets; 	// 
 	$socksError[] = $masterSock; 	// 
 	if($sockets) {	// есть, возможно, клиенты, включая тех, кто с CONNECT и UPDATE
-		if(gettype($dataSourceConnectionObject)==='resource (closed)') {	// главный источник есть, но мы его ранее закрыли
+		// А зачем было сделано принудительное переоткрытие закрытого главного источника?
+		// Как минимум, это приводит к зацикливанию, если у сокета съехала крыша, и он
+		// всё время возвращает пусто вместо ошибки. Тогда сокет будет закрыт по подсчёту
+		// пустых строк, но тут же открыт здесь, если есть клиенты CONNECT и UPDATE.
+		// А, это если появились клиенты - немедленно открыть главный источник.
+		// Если это переоткрытие отключить, главный источник будет открываться выше
+		// периодически через время. Возможно, через время он придёт в себя.
+		// Лучше всё же сделать флаг-костыль...
+		if(gettype($dataSourceConnectionObject)==='resource (closed)' and !$mainSourceHasStranges) {	// главный источник есть, но мы его ранее закрыли
 			chkSocks($dataSourceConnectionObject);	// 
-			//echo "\nПереоткрыли главный сокет, gettype(dataSourceConnectionObject)=".gettype($dataSourceConnectionObject)."\n";
+			echo "\nПереоткрыли главный сокет, gettype(dataSourceConnectionObject)=".gettype($dataSourceConnectionObject)."\n";
 		}
+		//
 		if(gettype($dataSourceConnectionObject)==='resource'){	// главный источник данных в порядке
 			$socksRead[] = $dataSourceConnectionObject; 	// есть клиенты -- нам нужно соединение с источником данных
 			$socksError[] = $dataSourceConnectionObject; 	// 
@@ -204,7 +224,6 @@ do {
 			$info = " and $dataSourceHumanName";
 		}	// иначе $dataSourceConnectionObject == null, и через оборот по таймауту снова будет предпринята попытка открыть главный источник данных
 	}
-	
 	else {	// клиентов нет -- можно закрыть соединеие с источником данных, чтобы он заснул приёмник гпс.
 		//echo "\nNo clients present. noClientTimeout=$noClientTimeout; lastClientExchange=".(time()-$lastClientExchange)."\n";
 		if($noClientTimeout and ((time()-$lastClientExchange)>=$noClientTimeout)){
@@ -213,8 +232,8 @@ do {
 			}
 			else echo "No clients                                                                \r";
 			$info = "";
-		}
-	}
+		};
+	};
 	
 	// сокет всегда готов для чтения, есть там что-нибудь или нет, поэтому если в socksWrite что-то есть, socket_select никогда не ждёт, возвращая socksWrite неизменённым
 	$socksWrite = array(); 	// очистим массив 
@@ -240,10 +259,12 @@ do {
 	}
 	//echo "\n pollWatchExist="; print_r($pollWatchExist); echo "minSocketTimeout=$minSocketTimeout; SocketTimeout=$SocketTimeout;        \n";
 
+	// Ожидаем сокеты.
 	$num_changed_sockets = socket_select($socksRead, $socksWrite, $socksError, $SocketTimeout); 	// должно ждать
 
+
 	//echo "\nnum_changed_sockets=$num_changed_sockets;      \n";
-	//echo "\n socksWrite содержит ".count($socksWrite)." сокетов после socket_select\n";
+	//echo "\n socksWrite содержит ".count($socksWrite)." сокетов после socket_select              \n";
 	echo($rotateBeam[$rBi]);	// вращающаяся палка
 	echo "Has ".(count($sockets))." client socks, and master$info socks. Ready ".count($socksRead)." read and ".count($socksWrite)." write socks\r";
 	$rBi++;
@@ -353,8 +374,13 @@ do {
 			else {
 				$dataSourceZeroCNT++;
 				if($dataSourceZeroCNT>10){
-					echo "\nTo many empty strings from $dataSourceHumanName socket       \n"; 	// бывает, источник данных умер, а сокет -- нет. Тогда из него читается пусто.
-					chkSocks($socket);
+					echo "To many empty strings from $dataSourceHumanName socket $socket                     \n"; 	// бывает, источник данных умер, а сокет -- нет. Тогда из него читается пусто.
+					//chkSocks($socket);	// закрыть и открыть снова
+					dataSourceClose($dataSourceConnectionObject);	// вместо переоткрытия главного источника - закроем его. Откроем потом, через время.
+					//echo "\n socksRead:"; print_r($socksRead); echo "\n";
+					//echo "\n socksWrite:"; print_r($socksWrite); echo "\n";
+					//exit;
+					$mainSourceHasStranges = true;
 				}
 				continue;	// к следующему сокету
 			}
@@ -414,7 +440,7 @@ do {
 		else $messages[$sockKey]['zerocnt']++;
 		if($messages[$sockKey]['zerocnt']>10){
 			echo "\n\nTo many empty strings from client socket #$sockKey $socket \n"; 	// бывает, клиент умер, а сокет -- нет. Тогда из него читается пусто.
-			chkSocks($socket);
+			chkSocks($socket);	// обычный сокет в этом случае будет просто закрыт и отовсюду удалён
 			unset($socket);
 		    continue;	// к следующему сокету
 		}
@@ -658,7 +684,7 @@ do {
 				unset($POLL);
 				break;
 			case 'CONNECT':	// подключиться к этому сокету как к gpsd. Используется, например, в netAISclient
-				echo "\nrecieved CONNECT! #$sockKey $socket    \n";
+				echo "recieved CONNECT! #$sockKey $socket                                     \n";
 				if(@$params['host'] and @$params['port']) { 	// указано подключиться туда
 					// Видимо, разрешать переподключаться за пределы локальной сети как-то неправильно...
 				}
@@ -696,7 +722,7 @@ global $phpCLIexec;
 $pid = getmypid();
 //echo "ps -A w | grep '".pathinfo(__FILE__,PATHINFO_BASENAME),"'\n";
 $toFind = pathinfo(__FILE__,PATHINFO_BASENAME);
-@exec("ps -A w | grep '$toFind'",$psList);
+@exec("ps -A w | grep '$toFind'",$psList);	// конечно, проще через pgrep -f , но не везде есть
 if(!$psList) { 	// for OpenWRT. For others -- let's hope so all run from one user
 	exec("ps w | grep '$toFind'",$psList);
 	echo "IRun: BusyBox based system found\n";

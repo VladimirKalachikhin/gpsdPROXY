@@ -67,16 +67,16 @@ function createSocketClient($host,$port){
 /* создаёт сокет, соединенный с $host,$port на другом компьютере */
 $sock = @socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
 if(!$sock) {
-	echo "Failed to create client socket by reason: " . socket_strerror(socket_last_error()) . "\n";
+	echo "[createSocketClient] Failed to create client socket by reason: " . socket_strerror(socket_last_error()) . "\n";
 	return FALSE;
 	//exit('1');
 }
 if(! @socket_connect($sock,$host,$port)){ 	// подключаемся к серверу
-	echo "Failed to connect to remote server $host:$port by reason: " . socket_strerror(socket_last_error()) . "\n";
+	echo "[createSocketClient] Failed to connect to remote server $host:$port by reason: " . socket_strerror(socket_last_error()) . "\n";
 	return FALSE;
 	//exit('1');
 }
-echo "Connected to $sock on $host:$port\n";
+echo "[createSocketClient] Connected to $sock on $host:$port\n";
 //echo gettype($sock);
 //$res = socket_write($socket, "\n");
 return $sock;
@@ -86,28 +86,29 @@ function chkSocks($socket) {
 /**/
 global $dataSourceConnectionObject, $masterSock, $sockets, $socksRead, $socksWrite, $socksError, $messages, $devicePresent,$dataSourceHost,$dataSourcePort,$dataSourceHumanName;
 if($socket === $dataSourceConnectionObject){ 	// умерло соединение с  источником данных
-	echo "\n$dataSourceHumanName socket closed. Try to recreate.\n";
-	@socket_close($dataSourceConnectionObject); 	// он может быть уже закрыт
+	echo "\n[chkSocks] $dataSourceHumanName socket closed. Try to recreate.\n";
+	//@socket_close($dataSourceConnectionObject); 	// он может быть уже закрыт
+	dataSourceClose($dataSourceConnectionObject);	// правильно использовать специальную процедуру из конфигурации источника
 	$dataSourceConnectionObject = createSocketClient($dataSourceHost,$dataSourcePort); 	// Соединение с источником данных
 	if(!$dataSourceConnectionObject) {
-		echo "False open socket to $dataSourceHumanName\n";
+		echo "[chkSocks] False open connection to $dataSourceHumanName\n";
 		return;
 	}
-	echo "Socket to $dataSourceHumanName reopen, do handshaking\n";
+	echo "[chkSocks] Connection to $dataSourceHumanName reopen, do handshaking              \n";
 	$newDevices = dataSourceConnect($dataSourceConnectionObject);
 	if($newDevices===FALSE) {
 		//exit("Handshaking fail: $dataSourceHumanName not run, bye     \n");
-		echo "Handshaking fail: $dataSourceHumanName not run     \n";
+		echo "\n[chkSocks] Handshaking fail: $dataSourceHumanName nas no required devices or not run     \n";
 		return;
 	}
 	
-	echo "Handshaked, will recieve data from $dataSourceHumanName\n";
+	echo "[chkSocks] Handshaked, will recieve data from $dataSourceHumanName\n";
 	if(!$devicePresent) echo"but no required devices present     \n";
 	$devicePresent = array_unique(array_merge($devicePresent,$newDevices));	// плоские массивы
-	echo "New handshaking, will recieve data from $dataSourceHumanName\n";
+	echo "[chkSocks] New handshaking, will recieve data from $dataSourceHumanName\n";
 }
 elseif($socket == $masterSock){ 	// умерло входное подключение
-	echo "\nIncoming socket die. Try to recreate.\n";
+	echo "\n[chkSocks] Incoming socket die. Try to recreate.\n";
 	@socket_close($masterSock); 	// он может быть уже закрыт
 	$masterSock = createSocketServer($gpsdProxyHost,$gpsdProxyPort,20); 	// Входное соединение
 }
@@ -186,7 +187,7 @@ do { 	// при каскадном соединении нескольких gps
 			$res = socket_write($gpsdSock, $msg, strlen($msg));
 			if($res === FALSE) { 	// gpsd умер
 				chkSocks($gpsdSock);
-				echo "\nFailed to send WATCH to gpsd: " . socket_strerror(socket_last_error()) . "\n";
+				echo "\n[connectToGPSD] Failed to send WATCH to gpsd: " . socket_strerror(socket_last_error()) . "\n";
 				return FALSE;
 			}
 			$WATCHsend = TRUE;
@@ -212,7 +213,7 @@ do { 	// при каскадном соединении нескольких gps
 }while($WATCHsend or @in_array($buf['class'],$controlClasses));
 //echo "buf: "; print_r($buf);
 if(!$devicePresent) {
-	echo "\nno required devices present\n";
+	echo "\n[connectToGPSD] no required devices present\n";
 	return FALSE;
 }
 $devicePresent = array_unique($devicePresent);

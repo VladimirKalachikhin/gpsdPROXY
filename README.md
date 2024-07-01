@@ -44,7 +44,8 @@ Indeed, SignalK can be used from gpsdPROXY only local. Via LAN it's odd.
 ### Collision detections
 The gpsdPROXY tries to determine the possibility of a collision according to the adopted simplified collision model based on the specified detection distance and the probability of deviations from the course.  
 ![collision model](screenshots/s1.jpeg)<br>  
- Object `{"class":"ALARM","alarms":{"collisions":[]}}` contains a list of mmsi and position of vessels that have a risk of collision. The [GaladrielMap](https://github.com/VladimirKalachikhin/Galadriel-map) highlights such vessels on the map and indicates the direction to them on self cursor.
+ Object `{"class":"ALARM","alarms":{"collisions":[]}}` contains a list of mmsi and position of vessels that have a risk of collision. The [GaladrielMap](https://github.com/VladimirKalachikhin/Galadriel-map) highlights such vessels on the map and indicates the direction to them on self cursor.  
+For the Collision detector to work correctly, you must specify the boat parameters in _params.php_.
 
 ## Compatibility
 Linux, PHP < 8. The cretinous decisions made at PHP 8 do not allow the **gpsdPROXY** to work at PHP 8, and I do not want to follow these decisions.
