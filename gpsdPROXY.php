@@ -32,7 +32,7 @@ $ cgps localhost:3838
 $ telnet localhost 3838
 */
 /*
-Version 0.6.14
+Version 0.6.15
 
 0.6.9	support heading and course sepately
 0.6.5	restart by cron
@@ -212,7 +212,7 @@ do {
 		// Лучше всё же сделать флаг-костыль...
 		if(gettype($dataSourceConnectionObject)==='resource (closed)' and !$mainSourceHasStranges) {	// главный источник есть, но мы его ранее закрыли
 			chkSocks($dataSourceConnectionObject);	// 
-			echo "\nПереоткрыли главный сокет, gettype(dataSourceConnectionObject)=".gettype($dataSourceConnectionObject)."\n";
+			//echo "\nПереоткрыли главный сокет, gettype(dataSourceConnectionObject)=".gettype($dataSourceConnectionObject)."\n";
 		}
 		//
 		if(gettype($dataSourceConnectionObject)==='resource'){	// главный источник данных в порядке
@@ -224,7 +224,7 @@ do {
 			$info = " and $dataSourceHumanName";
 		}	// иначе $dataSourceConnectionObject == null, и через оборот по таймауту снова будет предпринята попытка открыть главный источник данных
 	}
-	else {	// клиентов нет -- можно закрыть соединеие с источником данных, чтобы он заснул приёмник гпс.
+	else {	// клиентов нет -- можно закрыть соединение с источником данных, чтобы он заснул приёмник гпс.
 		//echo "\nNo clients present. noClientTimeout=$noClientTimeout; lastClientExchange=".(time()-$lastClientExchange)."\n";
 		if($noClientTimeout and ((time()-$lastClientExchange)>=$noClientTimeout)){
 			if( dataSourceClose($dataSourceConnectionObject)){
