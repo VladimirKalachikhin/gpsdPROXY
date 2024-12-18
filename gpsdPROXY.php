@@ -41,6 +41,7 @@ Version 0.6.15
 0.5.0	rewritten to module structure and add VenusOS data source. Used https://github.com/bluerhinos/phpMQTT with big changes.
 0.4.1	remove lat lon from WATCH flow if mode < 2 (no fix). On POLL stay as received.
 */
+ini_set('error_reporting', E_ALL & ~E_NOTICE & ~E_STRICT & ~E_DEPRECATED);
 chdir(__DIR__); // задаем директорию выполнение скрипта
 
 require('params.php'); 	// 
@@ -122,7 +123,7 @@ $dataSourceConnectionObject = NULL;
 require($requireFile);	// загрузим то что нужно для работы с указанным или найденным источником данных
 $masterSock = createSocketServer($gpsdProxyHost,$gpsdProxyPort,20); 	// Соединение для приёма клиентов, входное соединение
 //echo "masterSock=$masterSock; dataSourceConnectionObject=$dataSourceConnectionObject;\n";
-
+//
 // Подключимся к источнику данных
 echo "Begin: socket to $dataSourceHumanName opened, do handshaking                                   \n";
 $devicePresent = dataSourceConnect($dataSourceConnectionObject);	// реально $devicePresent нигде не используются, кроме как ниже. Можно использовать как-нибудь?

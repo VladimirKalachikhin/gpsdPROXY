@@ -29,7 +29,7 @@
 // wsDecode
 // wsEncode
 
-function createSocketServer($host,$port,$connections=2){
+function createSocketServer($host,$port,$connections=10){
 /* создаёт сокет, соединенный с $host,$port на своей машине, для приёма входящих соединений 
 в Ubuntu $connections = 0 означает максимально возможное количество соединений, а в Raspbian (Debian?) действительно 0
 */
@@ -506,7 +506,7 @@ $instrumentsDataUpdated = array();
 if($inInstrumentsData) {
 	foreach($inInstrumentsData as $inInstrument){
 		$instrumentsDataUpdated = array_merge($instrumentsDataUpdated,updInstrumentsData($inInstrument,$sockKey));	// массивы со строковыми ключами
-		//echo "merged instrumentsDataUpdated "; print_r($instrumentsDataUpdated);
+		//echo "[updAndPrepare] merged instrumentsDataUpdated "; print_r($instrumentsDataUpdated);
 	}
 }
 else $instrumentsDataUpdated = updInstrumentsData(array(),$sockKey);	// вызвали для проверки протухших данных и отправке, если
@@ -515,12 +515,12 @@ else $instrumentsDataUpdated = updInstrumentsData(array(),$sockKey);	// вызв
 dataSourceSave(); 	// сохраним в файл, если пора
 
 // Подготовим к отправке каждому подписчику данные в соответствии с подпиской.
-//echo "\npollWatchExist=$pollWatchExist;"; print_r($inInstrumentsData);
+//echo "\npollWatchExist:"; print_r($pollWatchExist);
 if($pollWatchExist){	// есть режим WATCH, надо подготовить данные. От gpsd (или что там вместо) может прийти пустое или непонятное
 	// чтобы для всех подключенных клиентов создать данные один раз
 	$WATCH = null; $ais = null; $ALARM = null;	
-	$updatedTypes = array_intersect_assoc($instrumentsDataUpdated,$pollWatchExist);	// те обновленные типы данных, на которые есть подписка
-	//echo "\n [updAndPrepare] updatedTypes:"; print_r($updatedTypes);
+	$updatedTypes = array_intersect_key($instrumentsDataUpdated,$pollWatchExist);	// те обновленные типы данных, на которые есть подписка
+	//if((count($updatedTypes)>1) or (!array_key_exists("TPV",$updatedTypes))) {echo "\n [updAndPrepare] updatedTypes:"; print_r($updatedTypes);echo "\n instrumentsDataUpdated:"; print_r($instrumentsDataUpdated);};
 	if(!$updatedTypes) return;	// нет ничего нового
 	foreach($updatedTypes as $updatedType => $v){
 		switch($updatedType){
@@ -532,6 +532,7 @@ if($pollWatchExist){	// есть режим WATCH, надо подготовит
 			break;
 		case "ALARM":
 			$ALARM = json_encode(makeALARM())."\r\n\r\n";
+			//echo "\n [updAndPrepare] prepare ALARM data to send=$ALARM";
 			break;
 		}
 	}
@@ -942,7 +943,8 @@ case 'MOB':
 	$instrumentsData['ALARM']['MOB']['status'] = $inInstrumentsData['status'];
 	$instrumentsData['ALARM']['MOB']['points'] = $inInstrumentsData['points'];
 	$instrumentsDataUpdated['ALARM'] = $sockKey;
-	//echo "MOB: "; print_r($instrumentsData['ALARM']['MOB']);
+	//echo "instrumentsDataUpdated['ALARM']={$instrumentsDataUpdated['ALARM']};\n";
+	echo "recieved MOB data: "; print_r($instrumentsData['ALARM']['MOB']);
 	break;
 }
 
@@ -958,6 +960,7 @@ $dataUpdated = time();	// Обозначим когда данные были о
 //echo "\n Data Updated: "; print_r($instrumentsDataUpdated);
 //echo "\n instrumentsData\n"; print_r($instrumentsData);
 //echo "\n instrumentsData AIS\n"; print_r($instrumentsData['AIS']);
+//echo "instrumentsDataUpdated['ALARM']={$instrumentsDataUpdated['ALARM']};\n";
 return $instrumentsDataUpdated;
 } // end function updInstrumentsData
 
