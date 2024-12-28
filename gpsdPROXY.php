@@ -42,6 +42,7 @@ Version 0.6.15
 0.4.1	remove lat lon from WATCH flow if mode < 2 (no fix). On POLL stay as received.
 */
 ini_set('error_reporting', E_ALL & ~E_NOTICE & ~E_STRICT & ~E_DEPRECATED);
+//ini_set('error_reporting', E_ALL & ~E_STRICT & ~E_DEPRECATED);
 chdir(__DIR__); // задаем директорию выполнение скрипта
 
 require('params.php'); 	// 
@@ -63,7 +64,7 @@ else $instrumentsData = @json_decode(@file_get_contents($backupFileName), true);
 if(!$instrumentsData) $instrumentsData = array(); 	
 // Переменные
 $lastBackupSaved = 0;	// время последнего сохранения кеша
-$lastClientExchange = 0;	// время последней коммуникации какого-нибудь клиента
+$lastClientExchange = time();	// время последней коммуникации какого-нибудь клиента
 
 $greeting = '{"class":"VERSION","release":"gpsdPROXY_0","rev":"beta","proto_major":3,"proto_minor":0}';
 $SEEN_GPS = 0x01; $SEEN_AIS = 0x08;
@@ -108,38 +109,11 @@ if($netAISconfig) {	// params.php
 
 
 // Поехали
-$res = findSource($dataSourceType,$dataSourceHost,$dataSourcePort); // Определим, к кому подключаться для получения данных
-if($res) list($dataSourceHost,$dataSourcePort,$requireFile) = $res;
-else {	// 
-	echo "No any data source found, exiting.\n"; 
-	return;
-}
-//echo "Source $requireFile on $dataSourceHost:$dataSourcePort\n";
-$sockets = array(); 	// список функционирующих сокетов
-// Сокет к источнику данных, может не быть, как оно в VenusOS. Определяется в require.
-// Предполагается, что из этого сокета только читается непрерывный поток цельных сообщений, ибо оно gpsd.
-// Handshaking осуществляется где-то отдельно, не в основном цикле обслуживания сокетов.
 $dataSourceConnectionObject = NULL; 	
-require($requireFile);	// загрузим то что нужно для работы с указанным или найденным источником данных
-$masterSock = createSocketServer($gpsdProxyHost,$gpsdProxyPort,20); 	// Соединение для приёма клиентов, входное соединение
-//echo "masterSock=$masterSock; dataSourceConnectionObject=$dataSourceConnectionObject;\n";
-//
-// Подключимся к источнику данных
-echo "Begin: socket to $dataSourceHumanName opened, do handshaking                                   \n";
-$devicePresent = dataSourceConnect($dataSourceConnectionObject);	// реально $devicePresent нигде не используются, кроме как ниже. Можно использовать как-нибудь?
-if(!$devicePresent) $devicePresent = [];	// может не быть основного источника данных
-//var_dump($devicePresent);
-// Но там может быть какой-то другой источник данных через CONNECT, как это
-// делает netAISclient и inetAIS или через UPDATE
-// поэтому комментируем следующие две строки
-//if($devicePresent===FALSE) exit("Handshaking fail: $dataSourceHumanName on $dataSourceHost:$dataSourcePort not answer, bye     \n");
-//echo "Begin: handshaked, will recieve data from $dataSourceHumanName\n";
-if(!$devicePresent) echo"but no required devices present     \n";
-
-// После того, как стало понятно, что всё нормально, удалим себя из cron
-exec("crontab -l | grep -v '".__FILE__."'  | crontab -"); 	
+$requireFile = NULL;	// имя файла с параметрами основного источника данных
 
 $messages = array(); 	// 
+$devicePresent = [];
 /*$messages: массив "номер сокета в массиве $sockets" => "массив [
 'output'=> array(сообщений), // сообщения для отправки через этот сокет на следующем обороте
 'PUT'=>TRUE/FALSE,	// признак, что данные надо брать из этого сокета, а не от gpsd. А оно надо?
@@ -155,7 +129,7 @@ $rotateBeam = array("|","/","-","\\");
 $rBi = 0;
 
 $dataSourceZeroCNT = 0;	// счётчик пустых строк, пришедших подряд от источника данных
-$lastTryToDataSocket = time();	// момент последней попытки поднять основной источник данных
+$lastTryToDataSocket = time()-(10*$minSocketTimeout+$minSocketTimeout);	// момент последней попытки поднять основной источник данных
 $dataUpdated = 0;	// время последней коммуникации с источником данных, чтобы проверять свежесть данных не при каждом POLL
 // флаг-костыль для обозначения ситуации, когда основной источник данных вроде жив,
 // но выдаёт не то.
@@ -163,45 +137,76 @@ $dataUpdated = 0;	// время последней коммуникации с �
 // реглярно случается с gpsd, когда у него нет данных, а его спрашивают.
 $mainSourceHasStranges = false;	
 
+$sockets = array(); 	// список функционирующих сокетов
 $socksRead = array(); $socksWrite = array(); $socksError = array(); 	// массивы для изменивших состояние сокетов (с учётом, что они в socket_select() по ссылке, и NULL прямо указать нельзя)
-echo "gpsdPROXY ready to connection on $gpsdProxyHost:$gpsdProxyPort\n";
+// Соединение для приёма клиентов, входное соединение
+$masterSock = createSocketServer($gpsdProxyHost,$gpsdProxyPort,20);
 do {
 	//$startTime = microtime(TRUE);
+	//echo "\n";
 	//echo "gpsdSock type=".gettype($dataSourceConnectionObject).";\n";
-	//echo "\nsockets:\n"; print_r($sockets);
+	//echo "sockets:\n"; print_r($sockets);
 	$SocketTimeout = $minSocketTimeout;	// сделаем, чтобы основной цикл не стоял вечно, для проверки протухания
 	
 	// Если нет основного источника данных, и пора попытаться его поднять.
-	// он закрывается в chkSocks, и потом делается попытка его открыть. При неудаче $dataSourceConnectionObject будет false.
-	//echo "\ndataSourceConnectionObject=$dataSourceConnectionObject; time()-lastTryToDataSocket=".(time()-$lastTryToDataSocket)."\n";
-	//if(!$dataSourceConnectionObject or gettype($dataSourceConnectionObject)==='resource (closed)'){
-	
 	// он может быть, но молчать, потому что его источник данных отвалился
-	// для того, чтобы он (gpsd, да) переконнектился к источнику данных -- его надо пнуть
-	//if(!$dataSourceConnectionObject){	
-		if((time()-$lastTryToDataSocket)>=10*$SocketTimeout){	// чтобы не каждый оборот, иначе никакакой handshaking никогда не завершится
-			echo "No main data source. Trying to reopen.                                 \n";
-			chkSocks($dataSourceConnectionObject);	// а как ещё узнать, что сокет закрыт? Массив error socket_select не помогает.
-			if(!$dataSourceConnectionObject){
-				// Определим, к кому подключаться для получения данных
-				// однако, функции в PHP переопределить нельзя, поэтому просто подключиться к источнику
-				// данных другого типа невозможно. Поэтому надо убиться и запуститься снова, тогда
-				// будет найден новый источник данных и соответствующие функции будут определены для него.
-				// перезапускать будем кроном, потому что busybox не имеет команды at
-				exec('(crontab -l ; echo "* * * * * '.$phpCLIexec.' '.__FILE__.'") | crontab -'); 	// каждую минуту
-				exit("Main data source died, I die too. But Cron will revive me.\n");
-			}
-			$lastTryToDataSocket = time();
-			if($dataSourceConnectionObject) $mainSourceHasStranges = false;
-			else echo "The reopening of the main data source failed. I'll try it later.\n";
-			
-		}
-	//}
+	// для того, чтобы он (gpsd, да) переконнектился к источнику данных -- его надо пнуть.
+	// Поэтому, если из основного источника давно не приходили данные - переконнектимся.
+	// Тут вопрос, что значит !$dataSourceConnectionObject?
+	if((time()-$lastTryToDataSocket)>=10*$SocketTimeout){	// чтобы не каждый оборот, иначе никакакой handshaking никогда не завершится
+		echo "No main data source. Trying to open.                                 \n";
+		chkSocks($dataSourceConnectionObject);	// а как ещё узнать, что сокет закрыт? Массив error socket_select не помогает.
+		// В результате chkSocks старый $dataSourceConnectionObject будет переоткрыт, если он вообще сокет
+		if(!$dataSourceConnectionObject){
+			// Определим, к кому подключаться для получения данных
+			$res = findSource($dataSourceType,$dataSourceHost,$dataSourcePort); // Определим, к кому подключаться для получения данных
+			if($res) {
+				list($dataSourceHost,$dataSourcePort,$requireFileNew) = $res;
+				if(($requireFile !== NULL) and ($requireFileNew !== $requireFile)){	// уже был определён источник, но новыйьисточник не тот, что был раньше
+					// однако, функции в PHP переопределить нельзя, поэтому просто подключиться к источнику
+					// данных другого типа невозможно. Поэтому надо убиться и запуститься снова, тогда
+					// будет найден новый источник данных и соответствующие функции будут определены для него.
+					// перезапускать будем кроном, потому что busybox не имеет команды at
+					exec('(crontab -l ; echo "* * * * * '.$phpCLIexec.' '.__FILE__.'") | crontab -'); 	// каждую минуту
+					exit("Main data source died, I die too. But Cron will revive me.\n");
+				};
+				$requireFile = $requireFileNew;
+				//echo "Source $requireFile on $dataSourceHost:$dataSourcePort\n";
+				require($requireFile);	// загрузим то что нужно для работы с указанным или найденным источником данных
+				echo "masterSock=$masterSock; dataSourceConnectionObject=$dataSourceConnectionObject;\n";
+				// dataSourceConnectionObject создаётся в require($requireFile)
+				// Сокет к источнику данных, может не быть, как оно в VenusOS. Определяется в require.
+				// Предполагается, что из этого сокета только читается непрерывный поток цельных сообщений, ибо оно gpsd.
+				// Handshaking осуществляется в функции dataSourceConnect, определённой в require($requireFile)
+				echo "Begin of data source: socket to $dataSourceHumanName opened, do handshaking                                   \n";
+				$devicePresent = dataSourceConnect($dataSourceConnectionObject);	// реально $devicePresent нигде не используются, кроме как ниже. Можно использовать как-нибудь?
+				if(!$devicePresent) $devicePresent = [];	// может не быть основного источника данных
+				//var_dump($devicePresent);
+				// Но там может быть какой-то другой источник данных через CONNECT, как это
+				// делает netAISclient и inetAIS или через UPDATE
+				// поэтому комментируем следующие две строки
+				//if($devicePresent===FALSE) exit("Handshaking fail: $dataSourceHumanName on $dataSourceHost:$dataSourcePort not answer, bye     \n");
+				//echo "Begin: handshaked, will recieve data from $dataSourceHumanName\n";
+				if(!$devicePresent) echo"but no required devices present     \n";
+
+				// После того, как стало понятно, что всё нормально, удалим себя из cron
+				exec("crontab -l | grep -v '".__FILE__."'  | crontab -"); 	
+				echo "gpsdPROXY ready to connection on $gpsdProxyHost:$gpsdProxyPort\n\n";
+			};	// а если не нашли, откуда получать главные данные - будем крутится так, 
+				// для показа AIS, передачи MOB и, возможно, других подключенных источников.
+				// Тип, мультиплексор данных. Хотя gpsd и сам так может.
+		};
+		$lastTryToDataSocket = time();
+		if($dataSourceConnectionObject) $mainSourceHasStranges = false;
+		else echo "The reopening of the main data source failed. I'll try it later.\n\n";
+		
+	};
 	
 	$socksRead = $sockets; 	// мы собираемся читать все сокеты
 	$socksRead[] = $masterSock; 	// 
 	$socksError = $sockets; 	// 
 	$socksError[] = $masterSock; 	// 
+	//echo "sockets:\n"; print_r($sockets);
 	if($sockets) {	// есть, возможно, клиенты, включая тех, кто с CONNECT и UPDATE
 		// А зачем было сделано принудительное переоткрытие закрытого главного источника?
 		// Как минимум, это приводит к зацикливанию, если у сокета съехала крыша, и он
@@ -226,8 +231,9 @@ do {
 		}	// иначе $dataSourceConnectionObject == null, и через оборот по таймауту снова будет предпринята попытка открыть главный источник данных
 	}
 	else {	// клиентов нет -- можно закрыть соединение с источником данных, чтобы он заснул приёмник гпс.
-		//echo "\nNo clients present. noClientTimeout=$noClientTimeout; lastClientExchange=".(time()-$lastClientExchange)."\n";
-		if($noClientTimeout and ((time()-$lastClientExchange)>=$noClientTimeout)){
+		echo "No clients present. noClientTimeout=$noClientTimeout; lastClientExchange=".(time()-$lastClientExchange)."          \n";
+		//echo "time=".time().";              \n";
+		if($dataSourceConnectionObject and $noClientTimeout and ((time()-$lastClientExchange)>=$noClientTimeout)){
 			if( dataSourceClose($dataSourceConnectionObject)){
 				echo "$dataSourceHumanName connection closed by no clients                                         \r";
 			}
@@ -447,9 +453,9 @@ do {
 		}
 		//echo "\nПРИНЯТО ОТ КЛИЕНТА # $sockKey $socket ".mb_strlen($buf,'8bit')." байт, PUT={$messages[$sockKey]['PUT']};\n";
 		//print_r($messages[$sockKey]);
-		if(@$messages[$sockKey]['PUT'] == TRUE){ 	// прочитали из соединения с источником данных
+		if(@$messages[$sockKey]['PUT'] == TRUE){ 	// прочитали из соединения с каким-то источником данных с протоколом типа gpsg
 			//echo "\n buf from other # $sockKey $socket: $buf \n";
-			$inInstrumentsData = instrumentsDataDecode($buf);	// одно сообщение конкретного класса из потока
+			$inInstrumentsData = GPSDlikeInstrumentsDataDecode($buf);	// одно сообщение конкретного класса из потока
 			//echo "\n inInstrumentsData from other \n"; print_r($inInstrumentsData);
 			updAndPrepare($inInstrumentsData); // обновим кеш и отправим данные для режима WATCH
 			//echo "\n gpsdData\n"; print_r($instrumentsData);
@@ -691,7 +697,6 @@ do {
 				}
 				else { 	// данные будут из этого сокета
 					//echo "\nby CONNECT, begin handshaking\n";
-					//$newDevices = dataSourceConnect($socket);	// все будут ждать, пока тут всё подключится
 					$newDevices = connectToGPSD($socket);	// все будут ждать, пока тут всё подключится
 					if(!$newDevices) break;
 					$messages[$sockKey]['PUT'] = TRUE; 	//
