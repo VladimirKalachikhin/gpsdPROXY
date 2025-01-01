@@ -32,7 +32,7 @@ $ cgps localhost:3838
 $ telnet localhost 3838
 */
 /*
-Version 0.6.15
+Version 0.7.0
 
 0.6.9	support heading and course sepately
 0.6.5	restart by cron
@@ -75,8 +75,9 @@ $gpsdProxydevice = array(
 'flags' => $SEEN_GPS | $SEEN_AIS,
 'stopbits' => 1
 );
-if(!$gpsdProxyHost) $gpsdProxyHost='localhost'; 	// я сам. Хост/порт для обращения к gpsdProxy
-if(!$gpsdProxyPort) $gpsdProxyPort=3838;
+if(!$gpsdProxyHosts) $gpsdProxyHosts=array(array('localhost',3838)); 	// я сам. Хосты/порты для обращения к gpsdProxy
+
+
 $pollWatchExist = array();	// флаг, что есть сокеты в режиме WATCH, когда данные им посылаются непрерывно, и список имеющихся подписок
 $minSocketTimeout = 86400;	// сек., сутки
 // определим, какое минимальное время протухания величины указано в конфиге
@@ -106,6 +107,8 @@ if($netAISconfig) {	// params.php
 	unset($saveBoatInfo);
 }
 //echo "boatInfo:"; print_r($boatInfo); echo "\n";
+// Удалим себя из cron, на всякий случай
+exec("crontab -l | grep -v '".__FILE__."'  | crontab -"); 	
 
 
 // Поехали
@@ -129,7 +132,8 @@ $rotateBeam = array("|","/","-","\\");
 $rBi = 0;
 
 $dataSourceZeroCNT = 0;	// счётчик пустых строк, пришедших подряд от источника данных
-$lastTryToDataSocket = time()-(10*$minSocketTimeout+$minSocketTimeout);	// момент последней попытки поднять основной источник данных
+$NminSocketTimeouts = 30;
+$lastTryToDataSocket = time()-($NminSocketTimeouts*$minSocketTimeout+$minSocketTimeout);	// момент последней попытки поднять основной источник данных
 $dataUpdated = 0;	// время последней коммуникации с источником данных, чтобы проверять свежесть данных не при каждом POLL
 // флаг-костыль для обозначения ситуации, когда основной источник данных вроде жив,
 // но выдаёт не то.
@@ -139,8 +143,20 @@ $mainSourceHasStranges = false;
 
 $sockets = array(); 	// список функционирующих сокетов
 $socksRead = array(); $socksWrite = array(); $socksError = array(); 	// массивы для изменивших состояние сокетов (с учётом, что они в socket_select() по ссылке, и NULL прямо указать нельзя)
-// Соединение для приёма клиентов, входное соединение
-$masterSock = createSocketServer($gpsdProxyHost,$gpsdProxyPort,20);
+// Соединения для приёма клиентов, входные соединения
+// Рпкомендуется для ipv4 и ipv6 указывать разные порты: https://bugs.php.net/bug.php?id=73307
+$masterSocks = array();
+foreach($gpsdProxyHosts as $i => $gpsdProxyHost){
+	if($sock=createSocketServer($gpsdProxyHost[0],$gpsdProxyHost[1],20)) $masterSocks[] = $sock;
+	else unset($gpsdProxyHosts[$i]);
+};
+if(!$masterSocks) exit("Unable to open inbound connections, died.\n");
+echo "gpsdPROXY ready to connection on ";
+foreach($gpsdProxyHosts as $gpsdProxyHost){
+	echo "$gpsdProxyHost[0]:$gpsdProxyHost[1], ";
+};
+echo "\n\n";
+
 do {
 	//$startTime = microtime(TRUE);
 	//echo "\n";
@@ -153,10 +169,11 @@ do {
 	// для того, чтобы он (gpsd, да) переконнектился к источнику данных -- его надо пнуть.
 	// Поэтому, если из основного источника давно не приходили данные - переконнектимся.
 	// Тут вопрос, что значит !$dataSourceConnectionObject?
-	if((time()-$lastTryToDataSocket)>=10*$SocketTimeout){	// чтобы не каждый оборот, иначе никакакой handshaking никогда не завершится
+	if((time()-$lastTryToDataSocket)>=$NminSocketTimeouts*$SocketTimeout){	// чтобы не каждый оборот, иначе никакакой handshaking никогда не завершится
 		echo "No main data source. Trying to open.                                 \n";
 		chkSocks($dataSourceConnectionObject);	// а как ещё узнать, что сокет закрыт? Массив error socket_select не помогает.
 		// В результате chkSocks старый $dataSourceConnectionObject будет переоткрыт, если он вообще сокет
+		//echo "dataSourceConnectionObject=$dataSourceConnectionObject;\n";
 		if(!$dataSourceConnectionObject){
 			// Определим, к кому подключаться для получения данных
 			$res = findSource($dataSourceType,$dataSourceHost,$dataSourcePort); // Определим, к кому подключаться для получения данных
@@ -173,7 +190,7 @@ do {
 				$requireFile = $requireFileNew;
 				//echo "Source $requireFile on $dataSourceHost:$dataSourcePort\n";
 				require($requireFile);	// загрузим то что нужно для работы с указанным или найденным источником данных
-				echo "masterSock=$masterSock; dataSourceConnectionObject=$dataSourceConnectionObject;\n";
+				//echo "masterSocks:"; print_r($masterSocks); echo "dataSourceConnectionObject=$dataSourceConnectionObject;\n";
 				// dataSourceConnectionObject создаётся в require($requireFile)
 				// Сокет к источнику данных, может не быть, как оно в VenusOS. Определяется в require.
 				// Предполагается, что из этого сокета только читается непрерывный поток цельных сообщений, ибо оно gpsd.
@@ -191,21 +208,22 @@ do {
 
 				// После того, как стало понятно, что всё нормально, удалим себя из cron
 				exec("crontab -l | grep -v '".__FILE__."'  | crontab -"); 	
-				echo "gpsdPROXY ready to connection on $gpsdProxyHost:$gpsdProxyPort\n\n";
 			};	// а если не нашли, откуда получать главные данные - будем крутится так, 
 				// для показа AIS, передачи MOB и, возможно, других подключенных источников.
 				// Тип, мультиплексор данных. Хотя gpsd и сам так может.
 		};
 		$lastTryToDataSocket = time();
+		$lastClientExchange = time();	// чтобы отсчёт начался заново, иначе оно сразу убъётся по отсутствию клиентов.
 		if($dataSourceConnectionObject) $mainSourceHasStranges = false;
-		else echo "The reopening of the main data source failed. I'll try it later.\n\n";
-		
+		else echo "The reopening of the main data source failed. I'll try it later.\n\n";		
 	};
 	
 	$socksRead = $sockets; 	// мы собираемся читать все сокеты
-	$socksRead[] = $masterSock; 	// 
 	$socksError = $sockets; 	// 
-	$socksError[] = $masterSock; 	// 
+	foreach($masterSocks as $masterSock){
+		$socksRead[] = $masterSock; 	// 
+		$socksError[] = $masterSock; 	// 
+	};
 	//echo "sockets:\n"; print_r($sockets);
 	if($sockets) {	// есть, возможно, клиенты, включая тех, кто с CONNECT и UPDATE
 		// А зачем было сделано принудительное переоткрытие закрытого главного источника?
@@ -231,13 +249,38 @@ do {
 		}	// иначе $dataSourceConnectionObject == null, и через оборот по таймауту снова будет предпринята попытка открыть главный источник данных
 	}
 	else {	// клиентов нет -- можно закрыть соединение с источником данных, чтобы он заснул приёмник гпс.
-		echo "No clients present. noClientTimeout=$noClientTimeout; lastClientExchange=".(time()-$lastClientExchange)."          \n";
+		//echo "No clients present. noClientTimeout=$noClientTimeout; lastClientExchange=".(time()-$lastClientExchange)."          \n";
 		//echo "time=".time().";              \n";
-		if($dataSourceConnectionObject and $noClientTimeout and ((time()-$lastClientExchange)>=$noClientTimeout)){
-			if( dataSourceClose($dataSourceConnectionObject)){
-				echo "$dataSourceHumanName connection closed by no clients                                         \r";
-			}
-			else echo "No clients                                                                \r";
+		if($noClientTimeout and ((time()-$lastClientExchange)>=$noClientTimeout)){
+			if($dataSourceConnectionObject){
+				if( dataSourceClose($dataSourceConnectionObject)){
+					echo "$dataSourceHumanName connection closed by no clients                                         \r";
+				}
+				else echo "No clients, but data source socket did not close by unknown reason.                           \r";
+			};
+			// Клиентов нет, а есть ли нужные данные?
+			//echo "instrumentsData['ALARM']:"; print_r($instrumentsData['ALARM']);
+			$noData = true;
+			foreach($instrumentsData['ALARM'] as $type => $value){	// считаем нужными только оповещения
+				switch($type){
+				case 'MOB':
+					if($value['status']){
+						$noData = false;
+						break 2;
+					};
+					break;
+				case 'collisions':
+				default:
+					if($value){
+						$noData = false;
+						break 2;
+					};
+				};
+			};
+			if($noData){	// нужных данных нет
+				exec('(crontab -l ; echo "*/3 * * * * '.$phpCLIexec.' '.__FILE__.'") | crontab -'); 	// каждые 3 минуты
+				exit("No clients and data, bye. But Cron will revive me.                     \n");
+			};
 			$info = "";
 		};
 	};
@@ -323,7 +366,6 @@ do {
 			$res = @socket_write($socket, $msg, $msgLen);
 			if($res === FALSE) { 	// клиент умер
 				echo "\nFailed to write data to socket $socket by: " . socket_strerror(@socket_last_error($sock)) . "\n";	// $sock уже может не быть сокетом
-				//echo "Не удалось записать: $msg\n";
 				chkSocks($socket);
 				continue 3;	// к следующему сокету
 			}
@@ -342,7 +384,7 @@ do {
 	//echo "\n Читаем из сокетов ".count($socksRead)."\n"; ///////////////////////
 	foreach($socksRead as $socket){
 		socket_clear_error($socket);
-		if($socket == $masterSock) { 	// новое подключение
+		if(in_array($socket,$masterSocks,true)) { 	// новое подключение
 			$sock = socket_accept($socket); 	// новый сокет для подключившегося клиента
 			// Это не работает в PHP 8, где socket - это пустой объект, поэетому == false
 			// а get_resource_type даёт ошибку, потому что аргумент не ресурс.
@@ -677,7 +719,7 @@ do {
 						$messages[$sockKey]['output'][] = array("It's all",'close');	// скажем послать фрейм, прекращающий соединение. Клиент закрое сокет, потом этот сокет обработается как дефектный
 					}
 					else {
-						//echo "Socket to client close by command from client             \n";
+						echo "Socket to client close by command from client             \n";
 						chkSocks($socket);	// просто закроем сокет
 						unset($socket);
 					}
@@ -718,7 +760,9 @@ do {
 foreach($sockets as $socket) {
 	socket_close($socket);
 }
-socket_close($masterSock);
+foreach($masterSocks as $masterSock){
+	socket_close($masterSock);
+};
 dataSourceClose($dataSourceConnectionObject);
 
 

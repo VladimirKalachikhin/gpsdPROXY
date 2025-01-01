@@ -1,6 +1,6 @@
 [Русское описание](https://github.com/VladimirKalachikhin/gpsdPROXY/blob/master/README.ru-RU.md)  
 # gpsdPROXY daemon [![License: CC BY-NC-SA 4.0](screenshots/Cc-by-nc-sa_icon.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en)
-**version 0.6**
+**version 0.7**
 
 It is very convenient to access the **[gpsd](https://gpsd.io/)** from web apps with asynchronous request [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) But there are problems:  
 
@@ -22,11 +22,14 @@ But you can just use **gpsdPROXY** as websocket proxy to **gpsd**.
 ## Features
 This cache/proxy daemon collect AIS and all TPV data from **gpsd** or other source during the user-defined lifetime and gives them by [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) request of the **gpsd** protocol.  
 So data from AIS stream and instruments such as echosounder and wind meter become available via ?POLL; request.  
-
 In addition, you may use ?WATCH={"enable":true,"json":true} stream, just like from original **gpsd**.   
 
+Also it is a data multiplexer, collecting various data from various sources to provide them to clients in unify interface.
+
+You can specify multiple addresses and ports to connect to, for example, in ipv4 and ipv6 networks.
+
 ### Data source
-Normally, the gpspPROXY works with **gpsd** on the same or the other machine. In this case, the data is the most complete and reliable.
+Normally, the gpspPROXY works with **gpsd** on the same or the other machine. In this case, the data is the most complete and reliable.  
 
 #### VenusOS
 The gpsdPROXY can work in VenusOS v2.80~38 or above. Or get data from any version via LAN. To do this, you need to enable "MQTT on LAN" feature. On VenusOS remote console go Settings -> Services -> MQTT on LAN (SSL) and Enable.
@@ -44,11 +47,17 @@ Indeed, SignalK can be used from gpsdPROXY only local. Via LAN it's odd.
 ### Collision detections
 The gpsdPROXY tries to determine the possibility of a collision according to the adopted simplified collision model based on the specified detection distance and the probability of deviations from the course.  
 ![collision model](screenshots/s1.jpeg)<br>  
- Object `{"class":"ALARM","alarms":{"collisions":[]}}` contains a list of mmsi and position of vessels that have a risk of collision. The [GaladrielMap](https://github.com/VladimirKalachikhin/Galadriel-map) highlights such vessels on the map and indicates the direction to them on self cursor.  
+Output collisions data contains a list of mmsi and position of vessels that have a risk of collision. The [GaladrielMap](https://github.com/VladimirKalachikhin/Galadriel-map) highlights such vessels on the map and indicates the direction to them on self cursor.  
 For the Collision detector to work correctly, you must specify the boat parameters in _params.php_.
 
+### MOB info
+The gpsdPROXY supports the exchange of "man overboard" information between connected clients. Output MOB data contains a GeoJSON object with MOB points and lines.
+
 ## Compatibility
-Linux, PHP < 8. The cretinous decisions made at PHP 8 do not allow the **gpsdPROXY** to work at PHP 8, and I do not want to follow these decisions.
+Linux, PHP<8. The cretinous decisions made at PHP 8 do not allow the **gpsdPROXY** to work at PHP 8, and I do not want to follow these decisions.
+
+## Install
+Just copy files to any dir and configure.
 
 ## Configure
 See _params.php_
@@ -77,7 +86,7 @@ The output same as described for **gpsd**, exept:
 * The DEVICES response of the WATCH command include one device only: the daemon self. So no need to merge data from similar devices -- the daemon do it.
 * _sky_ array in POLL object is empty.
 * AIS object missing in WATCH response, instead, this object is sent separately.
-* Added _ais_ array to POLL object and WATCH response with key = mmsi and value as described [AIS DUMP FORMATS](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_ais_dump_formats) section, except:  
+* Added _AIS_ array to POLL object and WATCH response with key = mmsi and value as described [AIS DUMP FORMATS](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_ais_dump_formats) section, except:  
 
 >* Speed in m/sec
 >* Location in degrees
@@ -86,6 +95,8 @@ The output same as described for **gpsd**, exept:
 >* Length in meters
 >* Beam in meters
 >* No 'second' field, but has 'timestamp' as unix time.
+
+* Added _ALARM_ array to MOB and collisions.
 
 ### Typical client code
 ```

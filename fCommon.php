@@ -34,12 +34,16 @@ function createSocketServer($host,$port,$connections=10){
 /* создаёт сокет, соединенный с $host,$port на своей машине, для приёма входящих соединений 
 в Ubuntu $connections = 0 означает максимально возможное количество соединений, а в Raspbian (Debian?) действительно 0
 */
-$sock = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
+if(substr_count($host,':')>1) {
+	$sock = socket_create(AF_INET6, SOCK_STREAM, SOL_TCP);
+	$host = trim($host,'[]');
+}
+else $sock = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
 if(!$sock) {
 	echo "Failed to create server socket by reason: " . socket_strerror(socket_last_error()) . "\n";
-	//return FALSE;
-	exit('1');
-}
+	return FALSE;
+};
+$res = socket_set_option($sock, SOL_SOCKET, SO_REUSEADDR, 1);	// чтобы можно было освободить ранее занятый адрес, не дожидаясь, пока его освободит система
 for($i=0;$i<100;$i++) {	// PHP Warning:  socket_bind(): Unable to bind address [98]: Address already in use
 	$res = @socket_bind($sock, $host, $port);
 	if(!$res) {
@@ -50,14 +54,12 @@ for($i=0;$i<100;$i++) {	// PHP Warning:  socket_bind(): Unable to bind address [
 }
 if(!$res) {
 	echo "Failed to binding to $host:$port by: " . socket_strerror(socket_last_error($sock)) . "\n";
-	//return FALSE;
-	exit('1');
+	return FALSE;
 }
 $res = socket_listen($sock,$connections); 	// 
 if(!$res) {
 	echo "Failed listennig by: " . socket_strerror(socket_last_error($sock)) . "\n";
-	//return FALSE;
-	exit('1');
+	return FALSE;
 }
 //socket_set_nonblock($sock); 	// подразумевается, что изменений в сокете всегда ждём в socket_select
 return $sock;
@@ -85,7 +87,7 @@ return $sock;
 
 function chkSocks($socket) {
 /**/
-global $dataSourceConnectionObject, $masterSock, $sockets, $socksRead, $socksWrite, $socksError, $messages, $devicePresent,$dataSourceHost,$dataSourcePort,$dataSourceHumanName;
+global $dataSourceConnectionObject, $masterSocks, $sockets, $socksRead, $socksWrite, $socksError, $messages, $devicePresent,$dataSourceHost,$dataSourcePort,$dataSourceHumanName,$gpsdProxyHosts;
 if(($dataSourceConnectionObject !== NULL) and ($socket === $dataSourceConnectionObject)){ 	// умерло ранее бывшее соединение с  источником данных
 	echo "[chkSocks] $dataSourceHumanName socket closed. Try to recreate.                      \n";
 	//@socket_close($dataSourceConnectionObject); 	// он может быть уже закрыт
@@ -108,10 +110,14 @@ if(($dataSourceConnectionObject !== NULL) and ($socket === $dataSourceConnection
 	$devicePresent = array_unique(array_merge($devicePresent,$newDevices));	// плоские массивы
 	echo "[chkSocks] New handshaking, will recieve data from $dataSourceHumanName\n";
 }
-elseif($socket == $masterSock){ 	// умерло входное подключение
+elseif(in_array($socket,$masterSocks,true)){ 	// умерло входное подключение
 	echo "\n[chkSocks] Incoming socket die. Try to recreate.\n";
 	@socket_close($masterSock); 	// он может быть уже закрыт
-	$masterSock = createSocketServer($gpsdProxyHost,$gpsdProxyPort,20); 	// Входное соединение
+	foreach($gpsdProxyHosts as $i => $gpsdProxyHost){
+		if($sock=createSocketServer($gpsdProxyHost[0],$gpsdProxyHost[1],20)) $masterSocks[] = $sock;
+		else unset($gpsdProxyHosts[$i]);
+	};
+	if(!$masterSocks) exit("Unable to open inbound connections, died.\n");
 }
 else {	// один из входяжих сокетов, или оно вообще не сокет
 	$n = array_search($socket,$sockets);	// 
@@ -560,7 +566,7 @@ if($pollWatchExist){	// есть режим WATCH, надо подготовит
 			break;
 		case "ALARM":
 			$ALARM = json_encode(makeALARM())."\r\n\r\n";
-			echo "\n [updAndPrepare] prepare ALARM data to send=$ALARM";
+			//echo "\n [updAndPrepare] prepare ALARM data to send=$ALARM";
 			break;
 		}
 	}
@@ -974,7 +980,7 @@ case 'MOB':
 	$instrumentsData['ALARM']['MOB']['timestamp'] = $inInstrumentsData['timestamp'];
 	$instrumentsDataUpdated['ALARM'] = $sockKey;
 	//echo "instrumentsDataUpdated['ALARM']={$instrumentsDataUpdated['ALARM']};\n";
-	echo "recieved new MOB data: "; print_r($instrumentsData['ALARM']['MOB']);
+	//echo "recieved new MOB data: "; print_r($instrumentsData['ALARM']['MOB']);
 	break;
 }
 

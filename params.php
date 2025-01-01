@@ -1,11 +1,16 @@
 <?php
-// Подключение к gpsdPROXY
-// по возможности не указывайте $gpsdProxyHost='0.0.0.0' -- это не очень безопасно.
-// The gpsdPROXY connection info.
-//$gpsdProxyHost='localhost'; 	//  gpsdPROXY host
-//$gpsdProxyHost='192.168.10.10'; 	// 
-$gpsdProxyHost='0.0.0.0'; 	// bad practice! For security reasons, set a real address from your LOCAL network or localhost.
-$gpsdProxyPort=3838; 	// gpsdPROXY port
+// Подключение к gpsdPROXY, список хост,порт
+// по возможности не указывайте '0.0.0.0' и '[::]'-- это не очень безопасно.
+// Лучше указать разные порты для ipv4 и ipv6, хотя в современных системах можно и один.
+// Квадратные скобки [] в адресе ipv6 обязательны.
+// The gpsdPROXY connection list, host,port.
+// Pls, avoid set '0.0.0.0' и '[::]' for security reasons.
+// The square brackets [] on ipv6 address is required.
+// Commonly you must set different ports for ipv4 and ipv6, but it may be one for modern systems.
+$gpsdProxyHosts = array(
+	array('0.0.0.0',3838),
+	array('[::]',3839),
+);
 
 // перечень типов данных каждого источника в gpsd, для которых требуется контролтровать время жизни
 // gpsd data types and their lifetime, sec
