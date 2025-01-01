@@ -5,6 +5,7 @@
 
 // chkGPSDpresent
 // connectToGPSD($gpsdSock)
+// GPSDlikeInstrumentsDataDecode($buf)
 
 // realChkSignalKpresent
 // chkSignalKpresent
@@ -29,16 +30,20 @@
 // wsDecode
 // wsEncode
 
-function createSocketServer($host,$port,$connections=2){
+function createSocketServer($host,$port,$connections=10){
 /* создаёт сокет, соединенный с $host,$port на своей машине, для приёма входящих соединений 
 в Ubuntu $connections = 0 означает максимально возможное количество соединений, а в Raspbian (Debian?) действительно 0
 */
-$sock = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
+if(substr_count($host,':')>1) {
+	$sock = socket_create(AF_INET6, SOCK_STREAM, SOL_TCP);
+	$host = trim($host,'[]');
+}
+else $sock = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
 if(!$sock) {
 	echo "Failed to create server socket by reason: " . socket_strerror(socket_last_error()) . "\n";
-	//return FALSE;
-	exit('1');
-}
+	return FALSE;
+};
+$res = socket_set_option($sock, SOL_SOCKET, SO_REUSEADDR, 1);	// чтобы можно было освободить ранее занятый адрес, не дожидаясь, пока его освободит система
 for($i=0;$i<100;$i++) {	// PHP Warning:  socket_bind(): Unable to bind address [98]: Address already in use
 	$res = @socket_bind($sock, $host, $port);
 	if(!$res) {
@@ -49,14 +54,12 @@ for($i=0;$i<100;$i++) {	// PHP Warning:  socket_bind(): Unable to bind address [
 }
 if(!$res) {
 	echo "Failed to binding to $host:$port by: " . socket_strerror(socket_last_error($sock)) . "\n";
-	//return FALSE;
-	exit('1');
+	return FALSE;
 }
 $res = socket_listen($sock,$connections); 	// 
 if(!$res) {
 	echo "Failed listennig by: " . socket_strerror(socket_last_error($sock)) . "\n";
-	//return FALSE;
-	exit('1');
+	return FALSE;
 }
 //socket_set_nonblock($sock); 	// подразумевается, что изменений в сокете всегда ждём в socket_select
 return $sock;
@@ -84,9 +87,9 @@ return $sock;
 
 function chkSocks($socket) {
 /**/
-global $dataSourceConnectionObject, $masterSock, $sockets, $socksRead, $socksWrite, $socksError, $messages, $devicePresent,$dataSourceHost,$dataSourcePort,$dataSourceHumanName;
-if($socket === $dataSourceConnectionObject){ 	// умерло соединение с  источником данных
-	echo "\n[chkSocks] $dataSourceHumanName socket closed. Try to recreate.\n";
+global $dataSourceConnectionObject, $masterSocks, $sockets, $socksRead, $socksWrite, $socksError, $messages, $devicePresent,$dataSourceHost,$dataSourcePort,$dataSourceHumanName,$gpsdProxyHosts;
+if(($dataSourceConnectionObject !== NULL) and ($socket === $dataSourceConnectionObject)){ 	// умерло ранее бывшее соединение с  источником данных
+	echo "[chkSocks] $dataSourceHumanName socket closed. Try to recreate.                      \n";
 	//@socket_close($dataSourceConnectionObject); 	// он может быть уже закрыт
 	dataSourceClose($dataSourceConnectionObject);	// правильно использовать специальную процедуру из конфигурации источника
 	$dataSourceConnectionObject = createSocketClient($dataSourceHost,$dataSourcePort); 	// Соединение с источником данных
@@ -107,12 +110,16 @@ if($socket === $dataSourceConnectionObject){ 	// умерло соединени
 	$devicePresent = array_unique(array_merge($devicePresent,$newDevices));	// плоские массивы
 	echo "[chkSocks] New handshaking, will recieve data from $dataSourceHumanName\n";
 }
-elseif($socket == $masterSock){ 	// умерло входное подключение
+elseif(in_array($socket,$masterSocks,true)){ 	// умерло входное подключение
 	echo "\n[chkSocks] Incoming socket die. Try to recreate.\n";
 	@socket_close($masterSock); 	// он может быть уже закрыт
-	$masterSock = createSocketServer($gpsdProxyHost,$gpsdProxyPort,20); 	// Входное соединение
+	foreach($gpsdProxyHosts as $i => $gpsdProxyHost){
+		if($sock=createSocketServer($gpsdProxyHost[0],$gpsdProxyHost[1],20)) $masterSocks[] = $sock;
+		else unset($gpsdProxyHosts[$i]);
+	};
+	if(!$masterSocks) exit("Unable to open inbound connections, died.\n");
 }
-else {
+else {	// один из входяжих сокетов, или оно вообще не сокет
 	$n = array_search($socket,$sockets);	// 
 	//echo "Close client socket #$n $socket type ".gettype($socket)." by error or by life                    \n";
 	if($n !== FALSE){
@@ -219,6 +226,33 @@ if(!$devicePresent) {
 $devicePresent = array_unique($devicePresent);
 return $devicePresent;
 } // end function connectToGPSD
+
+function GPSDlikeInstrumentsDataDecode($buf){
+/* Делает из полученного из сокета $buf данные в формате $instrumentsData, т.е. приводит их к формату 
+массива ответов gpsd в режиме ?WATCH={"enable":true,"json":true};, когда оно передаёт поток отдельных сообщений, типа:
+Array
+(
+    [class] => TPV
+    [device] => tcp://localhost:2222
+    [mode] => 3
+    [lat] => 60.069966667
+    [lon] => 23.522883333
+    [altHAE] => 0
+    [altMSL] => 0
+    [alt] => 0
+    [track] => 204.46
+    [magtrack] => 204.76
+    [magvar] => 8.7
+    [speed] => 2.932
+    [geoidSep] => 0
+    [eph] => 0
+)
+*/
+$buf = explode("\n",$buf);
+array_walk($buf,function (&$oneBuf){$oneBuf=json_decode($oneBuf,TRUE);});
+//echo "gpsd GPSDlikeInstrumentsDataDecode "; print_r($buf); echo "\n";
+return $buf;
+} // end function GPSDlikeInstrumentsDataDecode
 
 function realChkSignalKpresent($host,$port){
 /* Receive host,port of http interface of SignalK
@@ -333,7 +367,7 @@ switch($dataSourceType){
 case 'venusos':
 	if(!$dataSourceHost) $dataSourceHost = '127.0.0.1';	
 	if(!$dataSourcePort) $dataSourcePort = 1883;
-	echo "Try VenusOS on $dataSourceHost:$dataSourcePort\n";
+	echo "[findSource] Try VenusOS on $dataSourceHost:$dataSourcePort\n";
 	$res = chkVenusOSpresent($dataSourceHost,$dataSourcePort);
 	if($res){
 		if(is_array($res)) list($dataSourceHost,$dataSourcePort) = $res;
@@ -341,7 +375,7 @@ case 'venusos':
 		echo "Found VenusOS # $VenusOSsystemSerial on $dataSourceHost:$dataSourcePort\n";
 	}
 	else { 	// попробуем Signal K
-		echo "VenusOS not found. Try SignalK by Avahi\n";
+		echo "[findSource] VenusOS not found. Try SignalK by Avahi\n";
 		$res = findSignalKinLAN();	// спросим у Avahi
 		if($res) {
 			list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт веб-интерфейса
@@ -349,29 +383,29 @@ case 'venusos':
 			if($res) {
 				list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт нормального сокета
 				$requireFile = 'signalk.php';
-				echo "Found Signal K on $dataSourceHost:$dataSourcePort\n";
+				echo "[findSource] Found Signal K on $dataSourceHost:$dataSourcePort\n";
 			}
 			else { 
 				$dataSourceHost = '127.0.0.1';	
 				$dataSourcePort = 3000;	
-				echo "Avahi return bad. Try SignalK on $dataSourceHost:$dataSourcePort\n";
+				echo "[findSource] Avahi return bad. Try SignalK on $dataSourceHost:$dataSourcePort\n";
 				$res = chkSignalKpresent($dataSourceHost,$dataSourcePort);
 				if($res){
 					list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт нормального сокета
 					$requireFile = 'signalk.php';
-					echo "Found Signal K on $dataSourceHost:$dataSourcePort\n";
+					echo "[findSource] Found Signal K on $dataSourceHost:$dataSourcePort\n";
 				}
 			}
 		}
 		else {
 			$dataSourceHost = '127.0.0.1';	
 			$dataSourcePort = 3000;	
-			echo "Avahi return no. Try SignalK on $dataSourceHost:$dataSourcePort\n";
+			echo "[findSource] Avahi return no. Try SignalK on $dataSourceHost:$dataSourcePort\n";
 			$res = chkSignalKpresent($dataSourceHost,$dataSourcePort);
 			if($res){
 				list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт нормального сокета
 				$requireFile = 'signalk.php';
-				echo "Found Signal K on $dataSourceHost:$dataSourcePort\n";
+				echo "[findSource] Found Signal K on $dataSourceHost:$dataSourcePort\n";
 			}
 		}		
 	}
@@ -379,15 +413,15 @@ case 'venusos':
 case 'signalk':
 	if(!$dataSourceHost) $dataSourceHost = '127.0.0.1';	
 	if(!$dataSourcePort) $dataSourcePort = 3000;	
-	echo "Try SignalK on $dataSourceHost:$dataSourcePort\n";
+	echo "[findSource] Try SignalK on $dataSourceHost:$dataSourcePort\n";
 	$res = chkSignalKpresent($dataSourceHost,$dataSourcePort);
 	if($res){
 		list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт нормального сокета
 		$requireFile = 'signalk.php';
-		echo "Found Signal K on $dataSourceHost:$dataSourcePort\n";
+		echo "[findSource] Found Signal K on $dataSourceHost:$dataSourcePort\n";
 	}
 	else {
-		echo "SignalK not found. Try SignalK by Avahi\n";
+		echo "[findSource] SignalK not found. Try SignalK by Avahi\n";
 		$res = findSignalKinLAN();	// спросим у Avahi
 		if($res) {	//echo "Avahi что-то нашёл\n";
 			list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт веб-интерфейса
@@ -396,18 +430,18 @@ case 'signalk':
 			if($res) {
 				list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт нормального сокета
 				$requireFile = 'signalk.php';
-				echo "Found Signal K on $dataSourceHost:$dataSourcePort\n";
+				echo "[findSource] Found Signal K on $dataSourceHost:$dataSourcePort\n";
 			}
 		}
 		else {	// попробуем VenusOS
 			$dataSourceHost = '127.0.0.1';	
 			$dataSourcePort = 1883;	
-			echo "Avahi return no. Try VenusOS on $dataSourceHost:$dataSourcePort\n";
+			echo "[findSource] Avahi return no. Try VenusOS on $dataSourceHost:$dataSourcePort\n";
 			$res = chkVenusOSpresent($dataSourceHost,$dataSourcePort);
 			if($res){
 				if(is_array($res)) list($dataSourceHost,$dataSourcePort) = $res;
 				$requireFile = 'venusos.php';
-				echo "Found VenusOS # $VenusOSsystemSerial on $dataSourceHost:$dataSourcePort\n";
+				echo "[findSource] Found VenusOS # $VenusOSsystemSerial on $dataSourceHost:$dataSourcePort\n";
 			}
 		}
 	}
@@ -415,21 +449,21 @@ case 'signalk':
 default:	// gpsd
 	if(!$dataSourceHost) $dataSourceHost = '127.0.0.1';	
 	if(!$dataSourcePort) $dataSourcePort = 2947;	
-	echo "Try gpsd on $dataSourceHost:$dataSourcePort\n";
+	echo "[findSource] Try gpsd on $dataSourceHost:$dataSourcePort\n";
 	if(chkGPSDpresent($dataSourceHost,$dataSourcePort)) {
 		$requireFile = 'gpsd.php';
-		echo "Found gpsd on $dataSourceHost:$dataSourcePort\n";
+		echo "[findSource] Found gpsd on $dataSourceHost:$dataSourcePort\n";
 	}
 	else {
-		echo "gpsd not found. Try SignalK on $dataSourceHost:$dataSourcePort\n";
+		echo "[findSource] gpsd not found. Try SignalK on $dataSourceHost:$dataSourcePort\n";
 		$res = chkSignalKpresent($dataSourceHost,$dataSourcePort);
 		if($res){
 			list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт нормального сокета
 			$requireFile = 'signalk.php';
-			echo "Found Signal K on $dataSourceHost:$dataSourcePort\n";
+			echo "[findSource] Found Signal K on $dataSourceHost:$dataSourcePort\n";
 		}
 		else {
-			echo "SignalK not found. Try SignalK by Avahi\n";
+			echo "[findSource] SignalK not found. Try SignalK by Avahi\n";
 			$res = findSignalKinLAN();	// спросим у Avahi
 			if($res) {	//echo "Avahi что-то нашёл\n";
 				list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт веб-интерфейса
@@ -438,27 +472,27 @@ default:	// gpsd
 				if($res) {
 					list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт нормального сокета
 					$requireFile = 'signalk.php';
-					echo "Found Signal K on $dataSourceHost:$dataSourcePort\n";
+					echo "[findSource] Found Signal K on $dataSourceHost:$dataSourcePort\n";
 				}
 				else {
 					$dataSourceHost = '127.0.0.1';	
 					$dataSourcePort = 3000;	
-					echo "Avahi return bad. Try SignalK on $dataSourceHost:$dataSourcePort\n";
+					echo "[findSource] Avahi return bad. Try SignalK on $dataSourceHost:$dataSourcePort\n";
 					$res = chkSignalKpresent($dataSourceHost,$dataSourcePort);
 					if($res){
 						list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт нормального сокета
 						$requireFile = 'signalk.php';
-						echo "Found SignalK on $dataSourceHost:$dataSourcePort\n";
+						echo "[findSource] Found SignalK on $dataSourceHost:$dataSourcePort\n";
 					}
 					else {	// попробуем VenusOS
 						$dataSourceHost = '127.0.0.1';	
 						$dataSourcePort = 1883;	
-						echo "SignalK not found. Try VenusOS on $dataSourceHost:$dataSourcePort\n";
+						echo "[findSource] SignalK not found. Try VenusOS on $dataSourceHost:$dataSourcePort\n";
 						$res = chkVenusOSpresent($dataSourceHost,$dataSourcePort);
 						if($res){
 							if(is_array($res)) list($dataSourceHost,$dataSourcePort) = $res;
 							$requireFile = 'venusos.php';
-							echo "Found VenusOS # $VenusOSsystemSerial on $dataSourceHost:$dataSourcePort\n";
+							echo "[findSource] Found VenusOS # $VenusOSsystemSerial on $dataSourceHost:$dataSourcePort\n";
 						}
 					}
 				}
@@ -466,28 +500,28 @@ default:	// gpsd
 			else {
 				$dataSourceHost = '127.0.0.1';	
 				$dataSourcePort = 3000;	
-				echo "Avahi return no. Try SignalK on $dataSourceHost:$dataSourcePort\n";
+				echo "[findSource] Avahi return no. Try SignalK on $dataSourceHost:$dataSourcePort\n";
 				$res = chkSignalKpresent($dataSourceHost,$dataSourcePort);
 				if($res){
 					list($dataSourceHost,$dataSourcePort) = $res;	// хост и порт нормального сокета
 					$requireFile = 'signalk.php';
-					echo "Found Signal K on $dataSourceHost:$dataSourcePort\n";
+					echo "[findSource] Found Signal K on $dataSourceHost:$dataSourcePort\n";
 				}
 				else {	// попробуем VenusOS
 					$dataSourceHost = '127.0.0.1';	
 					$dataSourcePort = 1883;	
-					echo "SignalK not found. Try VenusOS on $dataSourceHost:$dataSourcePort\n";
+					echo "[findSource] SignalK not found. Try VenusOS on $dataSourceHost:$dataSourcePort\n";
 					$res = chkVenusOSpresent($dataSourceHost,$dataSourcePort);
 					if($res){
 						if(is_array($res)) list($dataSourceHost,$dataSourcePort) = $res;
 						$requireFile = 'venusos.php';
-						echo "Found VenusOS # $VenusOSsystemSerial on $dataSourceHost:$dataSourcePort\n";
-					}
-				}
-			}
-		}	
-	}
-}
+						echo "[findSource] Found VenusOS # $VenusOSsystemSerial on $dataSourceHost:$dataSourcePort\n";
+					};
+				};
+			};
+		};
+	};
+};
 
 if($requireFile) return array($dataSourceHost,$dataSourcePort,$requireFile);
 else return FALSE;
@@ -506,7 +540,7 @@ $instrumentsDataUpdated = array();
 if($inInstrumentsData) {
 	foreach($inInstrumentsData as $inInstrument){
 		$instrumentsDataUpdated = array_merge($instrumentsDataUpdated,updInstrumentsData($inInstrument,$sockKey));	// массивы со строковыми ключами
-		//echo "merged instrumentsDataUpdated "; print_r($instrumentsDataUpdated);
+		//echo "[updAndPrepare] merged instrumentsDataUpdated "; print_r($instrumentsDataUpdated);
 	}
 }
 else $instrumentsDataUpdated = updInstrumentsData(array(),$sockKey);	// вызвали для проверки протухших данных и отправке, если
@@ -515,12 +549,12 @@ else $instrumentsDataUpdated = updInstrumentsData(array(),$sockKey);	// вызв
 dataSourceSave(); 	// сохраним в файл, если пора
 
 // Подготовим к отправке каждому подписчику данные в соответствии с подпиской.
-//echo "\npollWatchExist=$pollWatchExist;"; print_r($inInstrumentsData);
+//echo "\npollWatchExist:"; print_r($pollWatchExist);
 if($pollWatchExist){	// есть режим WATCH, надо подготовить данные. От gpsd (или что там вместо) может прийти пустое или непонятное
 	// чтобы для всех подключенных клиентов создать данные один раз
 	$WATCH = null; $ais = null; $ALARM = null;	
-	$updatedTypes = array_intersect_assoc($instrumentsDataUpdated,$pollWatchExist);	// те обновленные типы данных, на которые есть подписка
-	//echo "\n [updAndPrepare] updatedTypes:"; print_r($updatedTypes);
+	$updatedTypes = array_intersect_key($instrumentsDataUpdated,$pollWatchExist);	// те обновленные типы данных, на которые есть подписка
+	//if((count($updatedTypes)>1) or (!array_key_exists("TPV",$updatedTypes))) {echo "\n [updAndPrepare] updatedTypes:"; print_r($updatedTypes);echo "\n instrumentsDataUpdated:"; print_r($instrumentsDataUpdated);};
 	if(!$updatedTypes) return;	// нет ничего нового
 	foreach($updatedTypes as $updatedType => $v){
 		switch($updatedType){
@@ -532,6 +566,7 @@ if($pollWatchExist){	// есть режим WATCH, надо подготовит
 			break;
 		case "ALARM":
 			$ALARM = json_encode(makeALARM())."\r\n\r\n";
+			//echo "\n [updAndPrepare] prepare ALARM data to send=$ALARM";
 			break;
 		}
 	}
@@ -938,11 +973,14 @@ case 'AIS':
 	//echo "\n Calculated collision areas for $vehicle \n";
 	break;
 case 'MOB':
+	if($inInstrumentsData['timestamp']<=$instrumentsData['ALARM']['MOB']['timestamp']) break;
 	$instrumentsData['ALARM']['MOB']['class'] = 'MOB';
 	$instrumentsData['ALARM']['MOB']['status'] = $inInstrumentsData['status'];
 	$instrumentsData['ALARM']['MOB']['points'] = $inInstrumentsData['points'];
+	$instrumentsData['ALARM']['MOB']['timestamp'] = $inInstrumentsData['timestamp'];
 	$instrumentsDataUpdated['ALARM'] = $sockKey;
-	//echo "MOB: "; print_r($instrumentsData['ALARM']['MOB']);
+	//echo "instrumentsDataUpdated['ALARM']={$instrumentsDataUpdated['ALARM']};\n";
+	//echo "recieved new MOB data: "; print_r($instrumentsData['ALARM']['MOB']);
 	break;
 }
 
@@ -958,6 +996,7 @@ $dataUpdated = time();	// Обозначим когда данные были о
 //echo "\n Data Updated: "; print_r($instrumentsDataUpdated);
 //echo "\n instrumentsData\n"; print_r($instrumentsData);
 //echo "\n instrumentsData AIS\n"; print_r($instrumentsData['AIS']);
+//echo "instrumentsDataUpdated['ALARM']={$instrumentsDataUpdated['ALARM']};\n";
 return $instrumentsDataUpdated;
 } // end function updInstrumentsData
 
@@ -1362,4 +1401,6 @@ for ($i = 0; $i < $payloadLength; $i++) {
 
 return $frame;
 } // end function wsEncode
+
+
 ?>
