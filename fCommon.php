@@ -534,17 +534,19 @@ $inInstrumentsData -- масиив ответов gpsd в режиме ?WATCH={"
 */
 global $messages, $pollWatchExist, $instrumentsData;
 
-//echo "[updAndPrepare] sockKey=$sockKey;                   \n";
+//echo "\n[updAndPrepare] sockKey=$sockKey;                   \n";
 //print_r($inInstrumentsData);
 $instrumentsDataUpdated = array();
 if($inInstrumentsData) {
 	foreach($inInstrumentsData as $inInstrument){
+		//echo "\n[updAndPrepare] inInstrument "; print_r($inInstrument);
 		$instrumentsDataUpdated = array_merge($instrumentsDataUpdated,updInstrumentsData($inInstrument,$sockKey));	// массивы со строковыми ключами
 		//echo "[updAndPrepare] merged instrumentsDataUpdated "; print_r($instrumentsDataUpdated);
 	}
 }
 else $instrumentsDataUpdated = updInstrumentsData(array(),$sockKey);	// вызвали для проверки протухших данных и отправке, если
 //echo "Что изменилось, instrumentsDataUpdated: "; print_r($instrumentsDataUpdated);
+if(!$instrumentsDataUpdated) return;	// если ничего не изменилось - нечего и посылать.
 
 dataSourceSave(); 	// сохраним в файл, если пора
 
@@ -557,15 +559,18 @@ if($pollWatchExist){	// есть режим WATCH, надо подготовит
 	//if((count($updatedTypes)>1) or (!array_key_exists("TPV",$updatedTypes))) {echo "\n [updAndPrepare] updatedTypes:"; print_r($updatedTypes);echo "\n instrumentsDataUpdated:"; print_r($instrumentsDataUpdated);};
 	if(!$updatedTypes) return;	// нет ничего нового
 	foreach($updatedTypes as $updatedType => $v){
+		//echo "updatedType=$updatedType; v=$v;         \n";
+		if(!$v) continue;	// там всё же должно быть true
 		switch($updatedType){
 		case "TPV":
-			$WATCH = json_encode(makeWATCH())."\r\n\r\n";
+			$WATCH = json_encode(makeWATCH(),JSON_PRESERVE_ZERO_FRACTION | JSON_UNESCAPED_UNICODE)."\r\n\r\n";	// нельзя JSON_NUMERIC_CHECK, потому что оно превратит mmsi в число, хотя оно строка. Тогда бессмысленно JSON_PRESERVE_ZERO_FRACTION
 			break;
 		case "AIS":
-			$ais = json_encode(makeAIS())."\r\n\r\n";
+			$ais = json_encode(makeAIS(), JSON_PRESERVE_ZERO_FRACTION | JSON_UNESCAPED_UNICODE)."\r\n\r\n";
+			//echo "\n [updAndPrepare] prepare AIS data to send=$ais";
 			break;
 		case "ALARM":
-			$ALARM = json_encode(makeALARM())."\r\n\r\n";
+			$ALARM = json_encode(makeALARM(), JSON_PRESERVE_ZERO_FRACTION | JSON_UNESCAPED_UNICODE)."\r\n\r\n";
 			//echo "\n [updAndPrepare] prepare ALARM data to send=$ALARM";
 			break;
 		}
@@ -607,8 +612,8 @@ if($pollWatchExist){	// есть режим WATCH, надо подготовит
 			}
 		}
 	}
-}
-} // end function updAndPrepare
+};
+}; // end function updAndPrepare
 
 function updInstrumentsData($inInstrumentsData=array(),$sockKey=null) {
 /* Обновляет глобальный кеш $instrumentsData отдельными сообщениями $inInstrumentsData
@@ -647,13 +652,29 @@ case 'TPV':
 	//echo "recieve TPV                     \n";
 	$dataTime = $now;
 	foreach($inInstrumentsData as $type => $value){ 	// обновим данные
-		// php создаёт вложенную структуру, это не python
+		if($type == 'time') { // надеемся, что время прислали до содержательных данных
+			$dataTime = strtotime($value);
+			//echo "\nПрисланное время: |$value|$dataTime, восстановленное: |".date(DATE_ATOM,$dataTime)."|".strtotime(date(DATE_ATOM,$dataTime))." \n";
+			if(!$dataTime) $dataTime = $now;
+		}
 		if(is_numeric($value)){
 			// int or float. нет способа привести к целому или вещественному без явной проверки, 
 			// кроме как вот через такую задницу. 
 			// Однако, оказывается, что числа уже всегда? И чё теперь? Ибо (int)0 !== (float)0
-			$instrumentsData['TPV'][$inInstrumentsData['device']]['data'][$type] = 0+$value; 	
 			//echo "\ntype=$type; value=$value; is_int:".(is_int($value))."; is_float:".(is_float($value))."; \n";
+			$value = 0+$value; 	// в результает получается целое или вещественное число
+			// Записываем время кеширования всех, потому что оно используется в makeWATCH для собирания самых свежих значений от разных устройств
+			// но если значение float, и равно предыдущему - считаем, что это предыдущее значение
+			// и время кеширования не обновляем. 
+			// Что стрёмно, на самом деле, ибо у нас часто (всегда?) значеия float, даже когда они
+			// int, особенно 0. Почему?
+			if(!(is_float($value) and ($value === $instrumentsData['TPV'][$inInstrumentsData['device']]['data'][$type]))){	// Кстати, такой фокус не пройдёт в JavaScript, потому что переменной $instrumentsData['TPV'][$inInstrumentsData['device']]['data'][$type] в начале не существует.
+				// php создаёт вложенную структуру, это не python и не javascript
+				$instrumentsData['TPV'][$inInstrumentsData['device']]['cachedTime'][$type] = $dataTime;
+			}
+			//else	echo "\nНе изменилось значение type=$type; value=$value;\n";
+
+			$instrumentsData['TPV'][$inInstrumentsData['device']]['data'][$type] = $value; 	// int or float
 			// Поправки
 			switch($type){
 			case 'depth': 
@@ -663,21 +684,16 @@ case 'TPV':
 				if(isset($instrumentsData['TPV'][$inInstrumentsData['device']]['data']['magdev'])) $instrumentsData['TPV'][$inInstrumentsData['device']]['data'][$type] += $instrumentsData['TPV'][$inInstrumentsData['device']]['data']['magdev'];
 				elseif(isset($boatInfo['magdev'])) $instrumentsData['TPV'][$inInstrumentsData['device']]['data'][$type] += $boatInfo['magdev'];
 				break;
-			}
+			};
 		}
 		else{
-			$instrumentsData['TPV'][$inInstrumentsData['device']]['data'][$type] = $value; 	// string
+			$instrumentsData['TPV'][$inInstrumentsData['device']]['data'][$type] = (string)$value; 	// string
+			// Записываем время кеширования всех, потому что оно используется в makeWATCH для собирания самых свежих значений от разных устройств
+			$instrumentsData['TPV'][$inInstrumentsData['device']]['cachedTime'][$type] = $dataTime;
 		}
 	
-		if($type == 'time') { // надеемся, что время прислали до содержательных данных
-			$dataTime = strtotime($value);
-			//echo "\nПрисланное время: |$value|$dataTime, восстановленное: |".date(DATE_ATOM,$dataTime)."|".strtotime(date(DATE_ATOM,$dataTime))." \n";
-			if(!$dataTime) $dataTime = $now;
-		}
 		//echo "\ngpsdProxyTimeouts['TPV'][$type]={$gpsdProxyTimeouts['TPV'][$type]};\n";
 		//echo "\ninInstrumentsData['device']={$inInstrumentsData['device']};\n";
-		// Записываем время кеширования всех, потому что оно используется в makeWATCH для собирания самых свежих значений от разных устройств
-		$instrumentsData['TPV'][$inInstrumentsData['device']]['cachedTime'][$type] = $dataTime;
 		/*
 		if($instrumentsData['TPV'][$inInstrumentsData['device']]['cachedTime'][$type] != $now){
 			//echo "type=$type; "; print_r($instrumentsData['TPV'][$inInstrumentsData['device']]['cachedTime']);
@@ -692,6 +708,7 @@ case 'TPV':
 case 'netAIS':
 	//echo "JSON netAIS Data: "; print_r($inInstrumentsData); echo "\n";
 	foreach($inInstrumentsData['data'] as $vehicle => $data){
+		$vehicle = (string)$vehicle;	// mmsi должна быть строкой
 		$timestamp = $data['timestamp'];
 		if(!$timestamp) $timestamp = $now;
 		$instrumentsData['AIS'][$vehicle]['timestamp'] = $timestamp;
@@ -717,6 +734,19 @@ case 'AIS':
 	case 1:
 	case 2:
 	case 3:		// http://www.e-navigation.nl/content/position-report
+		// Для начала определим timestamp полученного сообщения, и,
+		// если оно не моложе имеющегося - сообщение проигнорируем
+		$inInstrumentsData['second'] = (int)filter_var($inInstrumentsData['second'],FILTER_SANITIZE_NUMBER_INT);
+		if($inInstrumentsData['second']>63) $timestamp = $inInstrumentsData['second'];	// Ну так же проще! Будем считать, что если там большая цифра -- то это unix timestamp. Так будем принимать метку времени от SignalK
+		elseif($inInstrumentsData['second']>59) $timestamp = $now;	// т.е., никакого разумного времени передано не было, только условные.
+		else $timestamp = $now - $inInstrumentsData['second']; 	// Unis timestamp. Time stamp UTC second when the report was generated by the electronic position system (EPFS) (0-59, or 60 if time stamp is not available, which should also be the default value, or 61 if positioning system is in manual input mode, or 62 if electronic position fixing system operates in estimated (dead reckoning) mode, or 63 if the positioning system is inoperative)
+		if($instrumentsData['AIS'][$vehicle]['timestamp'] and ($timestamp<=$instrumentsData['AIS'][$vehicle]['timestamp'])) {
+			//echo "\nПолучено старое сообщение AIS № 1 для mmsi=$vehicle, игнорируем.\n";
+			break;
+		}
+		$instrumentsData['AIS'][$vehicle]['timestamp'] = $timestamp;
+		//echo "\nПолучено сообщение AIS № 1 для mmsi=$vehicle, timestamp=$timestamp; now=$now;\n";
+
 		if(isset($inInstrumentsData['status'])) {
 			if(is_string($inInstrumentsData['status'])){	// костыль к горбатому gpsd, который для 27 предложения пишет в status status_text.
 				//$instrumentsData['AIS'][$vehicle]['data']['status_text'] = filter_var($inInstrumentsData['status'],FILTER_SANITIZE_STRING);	// оно не надо, ибо интернационализация и всё такое. И, кстати: для американцев нет других языков, да.
@@ -833,12 +863,12 @@ case 'AIS':
 				else {
 					if($inInstrumentsData['course']==3600) $instrumentsData['AIS'][$vehicle]['data']['course'] = NULL;
 					else $instrumentsData['AIS'][$vehicle]['data']['course'] = (float)filter_var($inInstrumentsData['course'],FILTER_SANITIZE_NUMBER_FLOAT,FILTER_FLAG_ALLOW_FRACTION)/10; 	// Путевой угол. COG Course over ground in degrees ( 1/10 = (0-3599). 3600 (E10h) = not available = default. 3601-4095 should not be used)
-				}
+				};
 				$instrumentsData['AIS'][$vehicle]['cachedTime']['course'] = $now;
-			}
+			};
 			//echo "inInstrumentsData['scaled']={$inInstrumentsData['scaled']}\n";
 			//if($vehicle=='230985490') echo "inInstrumentsData['course']={$inInstrumentsData['course']}; course={$instrumentsData['AIS'][$vehicle]['data']['course']};\n";
-		}
+		};
 		if(isset($inInstrumentsData['heading'])){
 			if($inInstrumentsData['scaled']) {
 				if($inInstrumentsData['heading']==511) $instrumentsData['AIS'][$vehicle]['data']['heading'] = NULL;
@@ -847,19 +877,16 @@ case 'AIS':
 			else {
 				if($inInstrumentsData['heading']==511) $instrumentsData['AIS'][$vehicle]['data']['heading'] = NULL;
 				else $instrumentsData['AIS'][$vehicle]['data']['heading'] = (float)filter_var($inInstrumentsData['heading'],FILTER_SANITIZE_NUMBER_FLOAT,FILTER_FLAG_ALLOW_FRACTION); 	// Истинный курс. True heading Degrees (0-359) (511 indicates not available = default)
-			}
+			};
 			$instrumentsData['AIS'][$vehicle]['cachedTime']['heading'] = $now;
 			//if($vehicle=='230985490') echo "inInstrumentsData['heading']={$inInstrumentsData['heading']}; heading={$instrumentsData['AIS'][$vehicle]['data']['heading']};\n\n";
-		}
-		if($inInstrumentsData['second']>63) $instrumentsData['AIS'][$vehicle]['timestamp'] = (int)filter_var($inInstrumentsData['second'],FILTER_SANITIZE_NUMBER_INT);	// Ну так же проще! Будем считать, что если там большая цифра -- то это unix timestamp. Так будем принимать метку времени от SignalK
-		elseif($inInstrumentsData['second']>59) $instrumentsData['AIS'][$vehicle]['timestamp'] = time();
-		else $instrumentsData['AIS'][$vehicle]['timestamp'] = time() - (int)filter_var($inInstrumentsData['second'],FILTER_SANITIZE_NUMBER_INT); 	// Unis timestamp. Time stamp UTC second when the report was generated by the electronic position system (EPFS) (0-59, or 60 if time stamp is not available, which should also be the default value, or 61 if positioning system is in manual input mode, or 62 if electronic position fixing system operates in estimated (dead reckoning) mode, or 63 if the positioning system is inoperative)
+		};
 		if(isset($inInstrumentsData['maneuver'])){
 			if($inInstrumentsData['scaled']) $instrumentsData['AIS'][$vehicle]['data']['maneuver'] = $inInstrumentsData['maneuver']; 	// данные уже приведены к человеческому виду
 			else $instrumentsData['AIS'][$vehicle]['data']['maneuver'] = (int)filter_var($inInstrumentsData['maneuver'],FILTER_SANITIZE_NUMBER_INT); 	// Special manoeuvre indicator 0 = not available = default 1 = not engaged in special manoeuvre 2 = engaged in special manoeuvre (i.e. regional passing arrangement on Inland Waterway)
 			if($instrumentsData['AIS'][$vehicle]['data']['maneuver'] === 0) $instrumentsData['AIS'][$vehicle]['data']['maneuver'] = NULL;
 			$instrumentsData['AIS'][$vehicle]['cachedTime']['maneuver'] = $now;
-		}
+		};
 		if(isset($inInstrumentsData['raim'])) $instrumentsData['AIS'][$vehicle]['data']['raim'] = (bool)filter_var($inInstrumentsData['raim'],FILTER_SANITIZE_NUMBER_INT); 	// RAIM-flag Receiver autonomous integrity monitoring (RAIM) flag of electronic position fixing device; 0 = RAIM not in use = default; 1 = RAIM in use. See Table 50
 		if(isset($inInstrumentsData['radio'])) $instrumentsData['AIS'][$vehicle]['data']['radio'] = (string)$inInstrumentsData['radio']; 	// Communication state
 		$instrumentsDataUpdated['AIS'] = TRUE;
@@ -958,21 +985,91 @@ case 'AIS':
 		if(isset($inInstrumentsData['course_q'])) $instrumentsData['AIS'][$vehicle]['data']['course_q'] = (int)filter_var($inInstrumentsData['course_q'],FILTER_SANITIZE_NUMBER_INT); 	// Course inf. quality 0 = low/GNSS (default) 1 = high
 		if(isset($inInstrumentsData['heading_q'])) $instrumentsData['AIS'][$vehicle]['data']['heading_q'] = (int)filter_var($inInstrumentsData['heading_q'],FILTER_SANITIZE_NUMBER_INT); 	// Heading inf. quality 0 = low/GNSS (default) 1 = high
 		$instrumentsDataUpdated['AIS'] = TRUE;
+		//break; 	// comment break чтобы netAIS мог посылать информацию типа 5,24 и 6,8 в сообщени типа 1
+	case 14:	// Safety related broadcast message https://www.e-navigation.nl/content/safety-related-broadcast-message
+		if(isset($inInstrumentsData['text'])) $instrumentsData['AIS'][$vehicle]['data']['safety_related_text'] = filter_var($inInstrumentsData['text'],FILTER_SANITIZE_STRING); 	// 
+		//$instrumentsDataUpdated['AIS'] = TRUE;	// это сообщение приходит только вместе с сообщением 1, поэтому не будем по его приёме указывать на этот факт. Тогда содержание этого сообщения будет отослано клиентам только тогда, когда будет отослано (следующее) сообщение 1
 		break;
-	}
+	}; // end switch($inInstrumentsData['type'])
+	
 	if(!$instrumentsData['AIS'][$vehicle]['data']['length'] and $instrumentsData['AIS'][$vehicle]['data']['to_bow'] and $instrumentsData['AIS'][$vehicle]['data']['to_stern']){
 		$instrumentsData['AIS'][$vehicle]['data']['length'] = $instrumentsData['AIS'][$vehicle]['data']['to_bow'] + $instrumentsData['AIS'][$vehicle]['data']['to_stern'];
-	}
+	};
 	if(!$instrumentsData['AIS'][$vehicle]['data']['beam'] and $instrumentsData['AIS'][$vehicle]['data']['to_port'] and $instrumentsData['AIS'][$vehicle]['data']['to_starboard']){
 		$instrumentsData['AIS'][$vehicle]['data']['beam'] = $instrumentsData['AIS'][$vehicle]['data']['to_port'] + $instrumentsData['AIS'][$vehicle]['data']['to_starboard'];
-	}
-	
+	};
 	//echo "\n instrumentsData[AIS][$vehicle]['data']:\n"; print_r($instrumentsData['AIS'][$vehicle]['data']);echo "\n";
+
+	if(substr($vehicle,0,2)=='97'){
+		//echo "\n instrumentsData[AIS][$vehicle]['data']:\n"; print_r($instrumentsData['AIS'][$vehicle]['data']);echo "\n";
+		switch(substr($vehicle,0,3)){
+		case '972':	// AIS MOB
+		case '974':	// AIS EPIRB
+			//echo "vehicle=$vehicle; instrumentsDataUpdated['ALARM']={$instrumentsDataUpdated['ALARM']};         \n";
+			//echo "vehicle=$vehicle не должен быть отослан как AIS. instrumentsData:\n"; print_r($instrumentsData['AIS'][$vehicle]['data']);echo "\n";
+			
+			if($instrumentsData['ALARM']['MOB']){	// echo "режим MOB есть. instrumentsData['ALARM']['MOB']:\n"; print_r($instrumentsData['ALARM']['MOB']);echo "\n";
+				$i = null; $maxi = count($instrumentsData['ALARM']['MOB']['points']);
+				for($i=0; $i<$maxi; $i++){
+					if($instrumentsData['ALARM']['MOB']['points'][$i]['mmsi']==$instrumentsData['AIS'][$vehicle]['data']['mmsi']) break;
+				};
+				if($i!==null and $i<$maxi){	//echo "такая точка №$i уже есть, обновим, но тревогу поднимать не будем   \n";
+					if(isset($instrumentsData['AIS'][$vehicle]['data']['lat']) and ($instrumentsData['AIS'][$vehicle]['data']['lat'] !== $instrumentsData['ALARM']['MOB']['points'][$i]['coordinates'][1])
+					 and isset($instrumentsData['AIS'][$vehicle]['data']['lon']) and ($instrumentsData['AIS'][$vehicle]['data']['lon'] !== $instrumentsData['ALARM']['MOB']['points'][$i]['coordinates'][0])){
+						$instrumentsData['ALARM']['MOB']['points'][$i]['coordinates']=array($instrumentsData['AIS'][$vehicle]['data']['lon'],$instrumentsData['AIS'][$vehicle]['data']['lat']);
+						$instrumentsData['ALARM']['MOB']['timestamp'] = $instrumentsData['AIS'][$vehicle]['timestamp'];
+						$instrumentsDataUpdated['ALARM'] = true;
+					};
+					if(isset($instrumentsData['AIS'][$vehicle]['data']['safety_related_text']) and ($instrumentsData['AIS'][$vehicle]['data']['safety_related_text'] !== $instrumentsData['ALARM']['MOB']['points'][$i]['safety_related_text'])){
+						$instrumentsData['ALARM']['MOB']['points'][$i]['safety_related_text']=$instrumentsData['AIS'][$vehicle]['data']['safety_related_text'];
+						$instrumentsDataUpdated['ALARM'] = true;	// timestamp там нет
+					};
+				}
+				else{	//echo "такой точки ещё нет, создадим и поднимем тревогу    \n";
+					if(isset($instrumentsData['AIS'][$vehicle]['data']['lat']) and isset($instrumentsData['AIS'][$vehicle]['data']['lon'])){
+						$instrumentsData['ALARM']['MOB']['points'][] = array(
+							'coordinates'=> array($instrumentsData['AIS'][$vehicle]['data']['lon'],$instrumentsData['AIS'][$vehicle]['data']['lat']),	// "The first two elements are longitude and latitude" https://datatracker.ietf.org/doc/html/rfc7946#section-3.1.1
+							'mmsi'=>$instrumentsData['AIS'][$vehicle]['data']['mmsi'],
+							'safety_related_text'=>$instrumentsData['AIS'][$vehicle]['data']['safety_related_text']
+						);
+						$instrumentsData['ALARM']['MOB']['status'] = true;
+						$instrumentsData['ALARM']['MOB']['timestamp'] = $instrumentsData['AIS'][$vehicle]['timestamp'];
+						$instrumentsDataUpdated['ALARM'] = true;
+					};
+				};
+			}
+			else{	// echo "режима MOB нет, поднимем тревогу                 \n";
+				if(isset($instrumentsData['AIS'][$vehicle]['data']['lat']) and isset($instrumentsData['AIS'][$vehicle]['data']['lon'])){
+					$instrumentsData['ALARM']['MOB'] = array(
+						'class'=>'MOB',
+						'status'=>true,
+						'points'=> array(
+							array(
+								'coordinates'=> array($instrumentsData['AIS'][$vehicle]['data']['lon'],$instrumentsData['AIS'][$vehicle]['data']['lat']),	// "The first two elements are longitude and latitude" https://datatracker.ietf.org/doc/html/rfc7946#section-3.1.1
+								'mmsi'=>$instrumentsData['AIS'][$vehicle]['data']['mmsi'],
+								'safety_related_text'=>$instrumentsData['AIS'][$vehicle]['data']['safety_related_text']
+							)
+						),
+						'timestamp'=>$instrumentsData['AIS'][$vehicle]['timestamp']
+					);
+					$instrumentsDataUpdated['ALARM'] = true;
+				};
+			};
+			
+			unset($instrumentsData['AIS'][$vehicle]);	// удалим этот mmsi из данных AIS
+			unset($instrumentsDataUpdated['AIS']);	// теперь достаточно присвоить false
+			//echo "vehicle=$vehicle; instrumentsDataUpdated['ALARM']={$instrumentsDataUpdated['ALARM']};         \n";
+			return $instrumentsDataUpdated;	// вообще больше никакая обработка не нужна? Можно протормозить с контролем столкновений и актуальностью данных?
+			//break 2;	// потому что именно для этого case не нужно считать контроль столкновений, когда как для всего остального - нужно
+		default:
+		};
+	};
+
 	// Посчитаем данные для контроля столкновений:
 	list($instrumentsData['AIS'][$vehicle]['collisionArea'],$instrumentsData['AIS'][$vehicle]['squareArea']) = updCollisionArea($instrumentsData['AIS'][$vehicle]['data'],$collisionDistance);	// fCollisions.php
 	//echo "\n Calculated collision areas for $vehicle \n";
 	break;
-case 'MOB':
+case 'MOB':	// есть один объект MOB в $instrumentsData['ALARM']
 	if($inInstrumentsData['timestamp']<=$instrumentsData['ALARM']['MOB']['timestamp']) break;
 	$instrumentsData['ALARM']['MOB']['class'] = 'MOB';
 	$instrumentsData['ALARM']['MOB']['status'] = $inInstrumentsData['status'];
@@ -982,7 +1079,7 @@ case 'MOB':
 	//echo "instrumentsDataUpdated['ALARM']={$instrumentsDataUpdated['ALARM']};\n";
 	//echo "recieved new MOB data: "; print_r($instrumentsData['ALARM']['MOB']);
 	break;
-}
+};
 
 // Проверим актуальность всех данных
 $instrumentsDataUpdated = array_merge($instrumentsDataUpdated,chkFreshOfData());	// плоские массивы
@@ -995,7 +1092,7 @@ $dataUpdated = time();	// Обозначим когда данные были о
 
 //echo "\n Data Updated: "; print_r($instrumentsDataUpdated);
 //echo "\n instrumentsData\n"; print_r($instrumentsData);
-//echo "\n instrumentsData AIS\n"; print_r($instrumentsData['AIS']);
+//echo "\n instrumentsDataUpdated AIS:"; print_r($instrumentsDataUpdated['AIS']); echo "\n";
 //echo "instrumentsDataUpdated['ALARM']={$instrumentsDataUpdated['ALARM']};\n";
 return $instrumentsDataUpdated;
 } // end function updInstrumentsData
@@ -1229,7 +1326,8 @@ $encode = array(
 'engaged in fishing'=>7,
 'under way sailing'=>8,
 'power-driven vessel towing astern'=>11,
-'power-driven vessel pushing ahead or towing alongside'=>12
+'power-driven vessel pushing ahead or towing alongside'=>12,
+'AIS-SART is active'=>14
 );
 $statusCode = $encode[$statusText];
 if($statusCode === null)	$statusCode = 15;

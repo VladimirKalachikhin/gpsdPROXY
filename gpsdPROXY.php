@@ -32,8 +32,9 @@ $ cgps localhost:3838
 $ telnet localhost 3838
 */
 /*
-Version 0.7.0
+Version 0.8.0
 
+0.8.0	works without GNSS data source & AIS SART support
 0.6.9	support heading and course sepately
 0.6.5	restart by cron
 0.6.0	add collision detections
@@ -422,7 +423,7 @@ do {
 			if($buf) $dataSourceZeroCNT = 0;
 			else {
 				$dataSourceZeroCNT++;
-				if($dataSourceZeroCNT>10){
+				if($dataSourceZeroCNT>20){
 					echo "To many empty strings from $dataSourceHumanName socket $socket                     \n"; 	// бывает, источник данных умер, а сокет -- нет. Тогда из него читается пусто.
 					//chkSocks($socket);	// закрыть и открыть снова
 					dataSourceClose($dataSourceConnectionObject);	// вместо переоткрытия главного источника - закроем его. Откроем потом, через время.

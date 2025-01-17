@@ -1,6 +1,6 @@
-[Русское описание](https://github.com/VladimirKalachikhin/gpsdPROXY/blob/master/README.ru-RU.md)  
+[Русское описание](README.md)  
 # gpsdPROXY daemon [![License: CC BY-NC-SA 4.0](screenshots/Cc-by-nc-sa_icon.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en)
-**version 0.7**
+**version 0.8**
 
 It is very convenient to access the **[gpsd](https://gpsd.io/)** from web apps with asynchronous request [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) But there are problems:  
 
@@ -55,6 +55,7 @@ The gpsdPROXY supports the exchange of "man overboard" information between conne
 
 ## Compatibility
 Linux, PHP<8. The cretinous decisions made at PHP 8 do not allow the **gpsdPROXY** to work at PHP 8, and I do not want to follow these decisions.
+In addition, there is basic support for AIS Search and Rescue Transmitter (SART) messages AIS-MOB and AIS-EPIRB as a MOB data.
 
 ## Install
 Just copy files to any dir and configure.
