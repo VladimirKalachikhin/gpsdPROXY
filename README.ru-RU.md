@@ -1,6 +1,6 @@
 [In English](https://github.com/VladimirKalachikhin/gpsdPROXY/blob/master/README.md)  
 # gpsdPROXY daemon [![License: CC BY-NC-SA 4.0](screenshots/Cc-by-nc-sa_icon.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en)
-**version 0.7**  
+**version 0.8**  
 
 Весьма удобно обращаться к **[gpsd](https://gpsd.io/)** из веб-приложений посредством команды [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) в произвольный момент времени, однако есть проблемы:
   
@@ -52,7 +52,8 @@ gpsdPROXY может получать данные от сервиса Signal K,
 Для корректной работы надо указать характеристики своего судна в _params.php_.
 
 ### Человек за бортом
-**gpsdPROXY** обеспечивает обмен данными "человек за бортом" между поделюченными коиентами. Выходные данные содержат объект GeoJSON с соответствующими точками и линиями.  
+**gpsdPROXY** обеспечивает обмен данными "человек за бортом" между поделюченными коиентами. Выходные данные содержат соответствующие точки в формате, совместимом с GeoJSON.  
+Кроме того, имеется базовая поддержка сообщений AIS Search and Rescue Transmitter (SART) AIS-MOB и AIS-EPIRB в виде таких данных.
 
 
 ## Совместимось

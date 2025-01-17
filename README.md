@@ -1,6 +1,6 @@
 [Русское описание](https://github.com/VladimirKalachikhin/gpsdPROXY/blob/master/README.ru-RU.md)  
 # gpsdPROXY daemon [![License: CC BY-NC-SA 4.0](screenshots/Cc-by-nc-sa_icon.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en)
-**version 0.7**
+**version 0.8**
 
 It is very convenient to access the **[gpsd](https://gpsd.io/)** from web apps with asynchronous request [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) But there are problems:  
 
@@ -51,7 +51,8 @@ Output collisions data contains a list of mmsi and position of vessels that have
 For the Collision detector to work correctly, you must specify the boat parameters in _params.php_.
 
 ### MOB info
-The gpsdPROXY supports the exchange of "man overboard" information between connected clients. Output MOB data contains a GeoJSON object with MOB points and lines.
+The gpsdPROXY supports the exchange of "man overboard" information between connected clients. Output MOB data contains a GeoJSON-like object with MOB points and lines.  
+In addition, there is basic support for AIS Search and Rescue Transmitter (SART) messages AIS-MOB and AIS-EPIRB as a MOB data.
 
 ## Compatibility
 Linux, PHP<8. The cretinous decisions made at PHP 8 do not allow the **gpsdPROXY** to work at PHP 8, and I do not want to follow these decisions.
