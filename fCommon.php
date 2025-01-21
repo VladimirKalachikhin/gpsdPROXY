@@ -726,7 +726,7 @@ case 'AIS':
 	$vehicle = trim((string)$inInstrumentsData['mmsi']);	//
 	$instrumentsData['AIS'][$vehicle]['data']['mmsi'] = $vehicle;	// ВНИМАНИЕ! Ключ -- строка, представимая как число. Любые действия в массивом, затрагивающие ключи -- сделают эту строку числом
 	if($inInstrumentsData['netAIS']) $instrumentsData['AIS'][$vehicle]['data']['netAIS'] = TRUE; 	// 
-	//echo "\n AIS sentence type ".$inInstrumentsData['type']."\n";
+	//echo "\nmmsi $vehicle AIS sentence type ".$inInstrumentsData['type']."\n";
 	switch($inInstrumentsData['type']) {
 	case 27:
 	case 18:
@@ -1149,6 +1149,7 @@ if($instrumentsData['TPV']){
 // AIS
 if($instrumentsData['AIS']) {	// IF быстрей, чем обработка Warning?
 	foreach($instrumentsData['AIS'] as $id => $vehicle){
+		//echo "[chkFreshOfData] AIS id=$id;\n";
 		if(($now - $vehicle['timestamp'])>$noVehicleTimeout) {
 			unset($instrumentsData['AIS'][$id]); 	// удалим цель, последний раз обновлявшуюся давно
 			$instrumentsDataUpdated['AIS'] = TRUE;

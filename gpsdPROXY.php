@@ -32,7 +32,7 @@ $ cgps localhost:3838
 $ telnet localhost 3838
 */
 /*
-Version 0.8.0
+Version 0.8.1
 
 0.8.0	works without GNSS data source & AIS SART support
 0.6.9	support heading and course sepately
