@@ -39,6 +39,8 @@ $gpsdProxyTimeouts = array(  	// время в секундах после по�
 	'time' => 10		// Set same as lat lon. Regiure!
 ),
 'AIS' => array( 	// AIS datatypes. Реально задержка даже от реального AIS может быть минута, а через интернет - до трёх
+	'noVehicle' => 20*60,	// время в секундах, в течении которого цель AIS сохраняется в кеше после получения от неё последней информации
+	 						// seconds, time of continuous absence of the vessel in AIS, when reached - is deleted from the data. "when a ship is moored or at anchor, the position message is only broadcast every 180 seconds;"
 	'status' => 86400, 	// Navigational status, one day сутки
 	'accuracy' => 60*5, 	// Position accuracy
 	'turn' => 60*3, 	// 
@@ -61,6 +63,7 @@ $netAISconfig = '../../netAIS/boatInfo.ini';
 $boatInfo = array();
 /*
 $boatInfo = array(
+'shipname'=>'Sample Ship Name',	// Обязательно! Required!
 'length'=>9.1,	// Длина, м.
 'beam'=>3.05,	// Ширина, м.
 'to_bow'=>5,	// к носу от точки координат, в метрах. Reference point for reported position. Also indicates the dimension of ship (m) (see Fig. 42 and § 3.3.3) For SAR aircraft, the use of this field may be decided by the responsible administration. If used it should indicate the maximum dimensions of the craft. As default should A = B = C = D be set to “0”
@@ -72,17 +75,14 @@ $boatInfo = array(
 );
 */
 
-// время в секундах, в течении которого цель AIS сохраняется в кеше после получения от неё последней информации
-$noVehicleTimeout = 20*60; 	// seconds, time of continuous absence of the vessel in AIS, when reached - is deleted from the data. "when a ship is moored or at anchor, the position message is only broadcast every 180 seconds;"
-// адрес и порт источника координат и остальных данных, по умолчанию -- gpsd
-// host and port of instruments data source, gpsd by default
-
 // Контроль возможности столкновений
 // Collision detector
 // 	Дистанция, до которой определяется возможность столкновения, в минутах движения
 $collisionDistance = 10;	// minutes of movement
 
 // Источник данных. Data source.
+// адрес и порт источника координат и остальных данных, по умолчанию -- gpsd
+// host and port of instruments data source, gpsd by default
 //$dataSourceHost = 'localhost';	// default
 //$dataSourcePort = 2947;	// default gpsd
 //$dataSourceHost = '192.168.10.105';	// SignalK

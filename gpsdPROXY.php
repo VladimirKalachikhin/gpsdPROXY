@@ -18,6 +18,13 @@ Daemon
 Caches TPV and AIS data from gpsd, and returns them on request ?POLL; of the gpsd protocol
 As side: daemon keeps instruments alive and power consuming.  
 
+Added some new parameters for commands:
+    "subscribe":"TPV[,AIS[,ALARM]]" parameter for ?POLL and ?WATCH={"enable":true,"json":true} commands.
+    This indicates to return TPV or AIS or ALARM data only, or a combination of them. Default - all.
+    For example: ?POLL={"subscribe":"AIS"} return class "POLL" with "ais":[], not with "tpv":[].
+    "minPeriod":"", sec. for WATCH={"enable":true,"json":true} command. Normally the data is sent at the same speed as they come from sensors. Setting this allow get data not more often than after the specified number of seconds. For example:
+    WATCH={"enable":true,"json":true,"minPeriod":"2"} sends data every 2 seconds.
+
 The ?WATCH={“enable”:true,“json”:true} mode also available: via cocket or websocket. 
 The websocket is partially implemented but mostly work.
 
@@ -30,10 +37,16 @@ Call:
 $ nc localhost 3838
 $ cgps localhost:3838
 $ telnet localhost 3838
+?DEVICES;
+?WATCH={"enable":true};
+?POLL;
+
+?WATCH={"enable":true,"json":true}
 */
 /*
-Version 0.8.1
+Version 1.0.0
 
+1.0.0	up to base & optimise
 0.8.0	works without GNSS data source & AIS SART support
 0.6.9	support heading and course sepately
 0.6.5	restart by cron
@@ -89,7 +102,7 @@ array_walk_recursive($gpsdProxyTimeouts, function($val){
 if($minSocketTimeout == 86400) $minSocketTimeout = 10;
 //echo "minSocketTimeout=$minSocketTimeout;\n";
 
-// Характеристики судна, в основном для контроля столкновений
+// Характеристики судна, в основном для контроля столкновений, но mmsi необходим для netAIS
 if($netAISconfig) {	// params.php
 	$saveBoatInfo = $boatInfo;	// params.php
 	$boatInfo = parse_ini_file($netAISconfig,FALSE,INI_SCANNER_TYPED);
@@ -98,6 +111,8 @@ if($netAISconfig) {	// params.php
 		$boatInfo = $saveBoatInfo;
 	}
 	else {
+		if(!$boatInfo['shipname']) $boatInfo['shipname'] = $saveBoatInfo['shipname'];
+		if(!$boatInfo['mmsi']) $boatInfo['mmsi'] = $saveBoatInfo['mmsi'];
 		if(!$boatInfo['length']) $boatInfo['length'] = $saveBoatInfo['length'];
 		if(!$boatInfo['beam']) $boatInfo['beam'] = $saveBoatInfo['beam'];
 		if(!$boatInfo['to_bow']) $boatInfo['to_bow'] = $saveBoatInfo['to_bow'];
@@ -107,6 +122,9 @@ if($netAISconfig) {	// params.php
 	}
 	unset($saveBoatInfo);
 }
+if(!$boatInfo['shipname']) $boatInfo['shipname'] = (string)uniqid();
+if(!$boatInfo['mmsi']) $boatInfo['mmsi'] = str_pad(substr(crc32($boatInfo['shipname']),0,9),9,'0'); 	// левый mmsi, похожий на настоящий -- для тупых, кому не всё равно (SignalK, к примеру)
+
 //echo "boatInfo:"; print_r($boatInfo); echo "\n";
 // Удалим себя из cron, на всякий случай
 exec("crontab -l | grep -v '".__FILE__."'  | crontab -"); 	
@@ -675,11 +693,13 @@ do {
 			//echo "\n\nRecieved command from Client #$sockKey $socket command=$command; params=$params;\n";
 			if($params) $params = json_decode($params,TRUE);
 			else $params = array();
+			//echo "\n\nparams:"; print_r($params); echo "\n";
 			// Обработаем команду
-			if(@$params['subscribe']) {	// в результате $params всегда есть.
+			if($params['subscribe']) {	// в результате $params всегда есть.
 				$params['subscribe'] = array_fill_keys(explode(',',$params['subscribe']),TRUE);
 			}
 			else $params['subscribe'] = array('TPV'=>TRUE,'AIS'=>TRUE,'ALARM'=>TRUE);
+			
 			switch($command){
 			case 'WATCH': 	// default: ?WATCH={"enable":true}; без параметров === {"enable":false} Это правильно?
 				if($params['enable'] == TRUE){
@@ -720,7 +740,7 @@ do {
 						$messages[$sockKey]['output'][] = array("It's all",'close');	// скажем послать фрейм, прекращающий соединение. Клиент закрое сокет, потом этот сокет обработается как дефектный
 					}
 					else {
-						echo "Socket to client close by command from client             \n";
+						//echo "Socket to client close by command from client                           \n";	// это сообщение будет появляться каждый POLL, так что не надо.
 						chkSocks($socket);	// просто закроем сокет
 						unset($socket);
 					}
@@ -730,6 +750,7 @@ do {
 				if(!$messages[$sockKey]['POLL']) continue 2; 	// на POLL будем отзываться только после ?WATCH={"enable":true}
 				$POLL = makePOLL($params['subscribe']);	// подготовим данные в соответствии с подпиской
 				//echo "\nPOLL recieved, prepare data:"; print_r($POLL);
+				//echo "\n\nPOLL  params:"; print_r($params); echo "\n";
 				$messages[$sockKey]['output'][] = json_encode($POLL)."\r\n\r\n"; 	// будем копить сообщения, вдруг клиент не готов их принять
 				unset($POLL);
 				break;

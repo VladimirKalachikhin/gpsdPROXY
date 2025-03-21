@@ -119,7 +119,7 @@ elseif(in_array($socket,$masterSocks,true)){ 	// умерло входное п�
 	};
 	if(!$masterSocks) exit("Unable to open inbound connections, died.\n");
 }
-else {	// один из входяжих сокетов, или оно вообще не сокет
+else {	// один из входящих сокетов, или оно вообще не сокет
 	$n = array_search($socket,$sockets);	// 
 	//echo "Close client socket #$n $socket type ".gettype($socket)." by error or by life                    \n";
 	if($n !== FALSE){
@@ -164,13 +164,22 @@ $WATCHsend = FALSE;
 $dataType = $SEEN_GPS | $SEEN_AIS; 	// данные от каких приборов будем принимать от gpsd
 //echo "dataType=$dataType;\n";
 //echo "\nBegin handshaking with gpsd to socket $gpsdSock\n";
+// Похоже, выставить timeout для такого сокета невозможно?
+// A Socket instance created with socket_create() or socket_accept(). 
+// У нас же сокет создан socket_accept, должно работать? Но не работает.
+//socket_set_nonblock($gpsdSock);
+//echo "До SO_RCVTIMEO="; print_r(socket_get_option($gpsdSock,SOL_SOCKET,SO_RCVTIMEO)); echo ";      \n";
+//socket_set_option($gpsdSock,SOL_SOCKET,SO_RCVTIMEO,array("sec"=>3,"usec"=>0));	// таймаут чтения для сокета
+//socket_set_option($gpsdSock,SOL_SOCKET,SO_SNDTIMEO,array("sec"=>3,"usec"=>0));	// таймаут отправки для сокета
+//echo "После SO_RCVTIMEO="; print_r(socket_get_option($gpsdSock,SOL_SOCKET,SO_RCVTIMEO)); echo ";      \n";
 do { 	// при каскадном соединении нескольких gpsd заголовков может быть много
 	$zeroCount = 0;	// счётчик пустых строк
 	do {	// крутиться до принятия строки или до 10 пустых строк
-		$buf = @socket_read($gpsdSock, 2048, PHP_NORMAL_READ); 	// читаем. Здесь 2048 байт достаточно: принимаются только короткие сообщения.
+		//echo "Ждём:          \n";
+		$buf = socket_read($gpsdSock, 2048, PHP_NORMAL_READ); 	// читаем. Здесь 2048 байт достаточно: принимаются только короткие сообщения.
 		//echo "\nfCommon.php [connectToGPSD] buf:$buf| \n$zeroCount\n";
 		if($buf === FALSE) { 	// gpsd умер
-			//echo "\nFailed to read data from gpsd: " . socket_strerror(socket_last_error()) . "\n";
+			echo "\nFailed to read data from gpsd: " . socket_strerror(socket_last_error()) . "\n";
 			chkSocks($gpsdSock);
 			return FALSE;
 		}
@@ -556,7 +565,7 @@ if($pollWatchExist){	// есть режим WATCH, надо подготовит
 	// чтобы для всех подключенных клиентов создать данные один раз
 	$WATCH = null; $ais = null; $ALARM = null;	
 	$updatedTypes = array_intersect_key($instrumentsDataUpdated,$pollWatchExist);	// те обновленные типы данных, на которые есть подписка
-	//if((count($updatedTypes)>1) or (!array_key_exists("TPV",$updatedTypes))) {echo "\n [updAndPrepare] updatedTypes:"; print_r($updatedTypes);echo "\n instrumentsDataUpdated:"; print_r($instrumentsDataUpdated);};
+		//if((count($updatedTypes)>1) or (!array_key_exists("TPV",$updatedTypes))) {echo "\n [updAndPrepare] updatedTypes:"; print_r($updatedTypes);echo "\n instrumentsDataUpdated:"; print_r($instrumentsDataUpdated);};
 	if(!$updatedTypes) return;	// нет ничего нового
 	foreach($updatedTypes as $updatedType => $v){
 		//echo "updatedType=$updatedType; v=$v;         \n";
@@ -603,7 +612,7 @@ if($pollWatchExist){	// есть режим WATCH, надо подготовит
 						continue 2;	// вообще не будем слать AIS
 					}
 					$messages[$socket]['output'][] = $ais;
-					//echo "sending AIS socket=$socket;                     \n";
+					//echo "sending AIS to socket=$socket;                     \n";
 					break;
 				case "ALARM":
 					$messages[$socket]['output'][] = $ALARM;
@@ -706,19 +715,105 @@ case 'TPV':
 	}
 	break;
 case 'netAIS':
-	//echo "JSON netAIS Data: "; print_r($inInstrumentsData); echo "\n";
+	//echo "\n[updInstrumentsData] netAIS Data: "; print_r($inInstrumentsData); echo "\n";
 	foreach($inInstrumentsData['data'] as $vehicle => $data){
-		$vehicle = (string)$vehicle;	// mmsi должна быть строкой
-		$timestamp = $data['timestamp'];
-		if(!$timestamp) $timestamp = $now;
-		$instrumentsData['AIS'][$vehicle]['timestamp'] = $timestamp;
-		foreach($data as $type => $value){
-			$instrumentsData['AIS'][$vehicle]['data'][$type] = $value; 	// 
-			$instrumentsData['AIS'][$vehicle]['cachedTime'][$type] = $timestamp;
-			$instrumentsDataUpdated['AIS'] = true;
+		if($data['class'] == 'MOB'){	// сообщение MOB
+			//echo "\n[updInstrumentsData] netAIS MOB Data: "; print_r($data); echo "\n";
+			if($data['status']){	//echo "в пришедших данных есть статус MOB          \n";
+				if($instrumentsData['ALARM']['MOB']['status']){	 //echo "[updInstrumentsData] netAIS: режим MOB есть, в пришедших данных есть.\n";// echo "instrumentsData['ALARM']['MOB']:"; print_r($instrumentsData['ALARM']['MOB']);echo "\n";
+					// Если имеюшиеся данные моложе пришедших - игнорируем
+					//echo "[updInstrumentsData] {$instrumentsData['ALARM']['MOB']['timestamp']} >= {$data['timestamp']}\n";
+					if($instrumentsData['ALARM']['MOB']['timestamp'] >= $data['timestamp']) break;
+					//echo "[updInstrumentsData] netAIS: режим MOB есть, в пришедших данных есть свежее.   \n"; echo "instrumentsData['ALARM']['MOB']:"; print_r($instrumentsData['ALARM']['MOB']);echo "\n";
+					// Обновим / добавим точки
+					// Пришедшие точки там уже могут быть, причём от одного mmsi - сколько хочешь точек.
+					// Поэтому нужно взять в пришедшем все точки от одного mmsi, удалить
+					// из нашего MOB все точки от этого mmsi, а потом добавить в наш MOB
+					// точки из пришедшего с этим mmsi.
+					$yetDeleted = array();	// список mmsi, точки от которых уже удалены
+					$current = null;	// mmsi текущей точки в нашем объекте MOB
+					foreach($instrumentsData['ALARM']['MOB']['points'] as $point){	// удалим точки с этим mmsi
+						if($point['current']) {
+							$current = $point['mmsi'];
+							break;
+						};
+					};
+					//echo "[updInstrumentsData] current=$current;\n";
+					foreach($data['points'] as $inPoint){
+						if($inPoint['mmsi'] == $boatInfo['mmsi']) continue;	// игнорируем информацию о себе, пришедшую со стороны
+						if(!in_array($inPoint['mmsi'],$yetDeleted)){	// если точки с mmsi этой точки ещё не удаляли
+							$yetDeleted[] = $inPoint['mmsi'];
+							foreach($instrumentsData['ALARM']['MOB']['points'] as $i => $isPoint){	// удалим точки с этим mmsi
+								if($inPoint['mmsi'] != $isPoint['mmsi']) continue;
+								//echo "такая точка есть в нашем MOB\n";
+								unset($instrumentsData['ALARM']['MOB']['points'][$i]);	
+							};
+						};
+						//echo "[updInstrumentsData] current=$current;\n";
+						if($current and ($current != $inPoint['mmsi'])) $inPoint['current'] = false;	// если у нас уже есть текущая точка, сведения о чужой текущей игнорируем
+						$instrumentsData['ALARM']['MOB']['points'][] = $inPoint;
+						$instrumentsData['ALARM']['MOB']['timestamp'] = $data['timestamp'];
+						$instrumentsDataUpdated['ALARM'] = true;
+					};
+					$instrumentsData['ALARM']['MOB']['points'] = array_values($instrumentsData['ALARM']['MOB']['points']);	// переиндексируем массив, потому что, если было удаление точек, то теперь с точки зрения json это объект
+				}
+				else{	 //echo "режима MOB нет                 \n";
+					// Однако, если у нас есть завершённый режим MOB, который был
+					// завершён позже метки времени пришедшего - игнорируем пришедший.
+					// Таким образом, получив чужой MOB, а потом выключив свой, поднятый на основании чужого,
+					// мы сможем игнорировать чужой MOB до тех пор, пока тот не изменится.
+					//echo "[updInstrumentsData] {$instrumentsData['ALARM']['MOB']['timestamp']} >= {$data['timestamp']}\n";
+					if($instrumentsData['ALARM']['MOB']['timestamp'] >= $data['timestamp']) break;
+					//echo " 	поднимем тревогу   \n";
+					$instrumentsData['ALARM']['MOB'] = $data;
+					$instrumentsData['ALARM']['MOB']['timestamp'] = $data['timestamp'];
+					$instrumentsDataUpdated['ALARM'] = true;
+				};
+			}
+			else { 	 //echo "\n иначе - в пришедших данных нет статуса MOB\n";
+				if($instrumentsData['ALARM']['MOB']['status']){	 //echo "netAIS: режим MOB есть, в пришедших данных нет.\n";// echo "instrumentsData['ALARM']['MOB']:"; print_r($instrumentsData['ALARM']['MOB']);echo "\n";
+					// В пришедших данных должны быть точки, в отношении которых кто-то выключил режим MOB.
+					// Тогда мы удаляем все точки от тех mmsi, которые имеются в выключенных точках,
+					// из своего MOB.
+					$yetDeleted = array();	// список mmsi, точки от которых уже удалены
+					foreach($data['points'] as $inPoint){
+						//echo "inPoint:"; print_r($inPoint); echo "\n";
+						if($inPoint['mmsi'] == $boatInfo['mmsi']) continue;	// игнорируем информацию о себе, пришедшую со стороны
+						if(!in_array($inPoint['mmsi'],$yetDeleted)){	// если точки с mmsi этой точки ещё не удаляли
+							$yetDeleted[] = $inPoint['mmsi'];
+							foreach($instrumentsData['ALARM']['MOB']['points'] as $i => $isPoint){
+								//echo "isPoint:"; print_r($isPoint); echo "\n";
+								if($inPoint['mmsi'] != $isPoint['mmsi']) continue;
+									//echo "такая точка есть в нашем MOB\n";
+									unset($instrumentsData['ALARM']['MOB']['points'][$i]);
+									$instrumentsData['ALARM']['MOB']['timestamp'] = $data['timestamp'];
+									$instrumentsDataUpdated['ALARM'] = true;
+							};
+						};
+					};
+					$instrumentsData['ALARM']['MOB']['points'] = array_values($instrumentsData['ALARM']['MOB']['points']);	// переиндексируем массив, потому что, если было удаление точек, то теперь с точки зрения json это объект
+					if(count($instrumentsData['ALARM']['MOB']['points']) == 0){	// точек в нашем объекте MOB не осталось.
+						$instrumentsData['ALARM']['MOB']['status'] = false;
+					};
+				}
+				else {	 //echo "режима MOB нет                          \n";
+				};
+			};
+			//echo "[updInstrumentsData] instrumentsData['ALARM']['MOB'] after:"; print_r($instrumentsData['ALARM']['MOB']);echo "\n";
 		}
-		// Посчитаем данные для контроля столкновений:
-		list($instrumentsData['AIS'][$vehicle]['collisionArea'],$instrumentsData['AIS'][$vehicle]['squareArea']) = updCollisionArea($instrumentsData['AIS'][$vehicle]['data'],$collisionDistance);	// fCollisions.php
+		else {	// netAIS vessel
+			$vehicle = (string)$vehicle;	// mmsi должна быть строкой
+			$timestamp = $data['timestamp'];
+			if(!$timestamp) $timestamp = $now;
+			$instrumentsData['AIS'][$vehicle]['timestamp'] = $timestamp;
+			foreach($data as $type => $value){
+				$instrumentsData['AIS'][$vehicle]['data'][$type] = $value; 	// 
+				$instrumentsData['AIS'][$vehicle]['cachedTime'][$type] = $timestamp;
+				$instrumentsDataUpdated['AIS'] = true;
+			}
+			// Посчитаем данные для контроля столкновений:
+			list($instrumentsData['AIS'][$vehicle]['collisionArea'],$instrumentsData['AIS'][$vehicle]['squareArea']) = updCollisionArea($instrumentsData['AIS'][$vehicle]['data'],$collisionDistance);	// fCollisions.php
+		};
 	}
 	break;
 case 'AIS':
@@ -1005,60 +1100,99 @@ case 'AIS':
 		switch(substr($vehicle,0,3)){
 		case '972':	// AIS MOB
 		case '974':	// AIS EPIRB
-			//echo "vehicle=$vehicle; instrumentsDataUpdated['ALARM']={$instrumentsDataUpdated['ALARM']};         \n";
-			//echo "vehicle=$vehicle не должен быть отослан как AIS. instrumentsData:\n"; print_r($instrumentsData['AIS'][$vehicle]['data']);echo "\n";
+			//echo "vehicle=$vehicle не должен быть отослан как AIS. instrumentsData:\n"; //print_r($instrumentsData['AIS'][$vehicle]['data']);echo "\n";
 			
-			if($instrumentsData['ALARM']['MOB']){	// echo "режим MOB есть. instrumentsData['ALARM']['MOB']:\n"; print_r($instrumentsData['ALARM']['MOB']);echo "\n";
+			if($instrumentsData['ALARM']['MOB']['status']){	//echo "режим MOB есть. instrumentsData['ALARM']['MOB']:\n";// print_r($instrumentsData['ALARM']['MOB']);echo "\n";
+				// Если эта цель AIS уже есть как точка в имеющемся объекте MOB - игнорируем.
+				// По AIS приходит только одна точка с данным mmsi, так что она идентифицируется этим mmsi
+				// А удалять из $instrumentsData['AIS'] не надо?
 				$i = null; $maxi = count($instrumentsData['ALARM']['MOB']['points']);
 				for($i=0; $i<$maxi; $i++){
-					if($instrumentsData['ALARM']['MOB']['points'][$i]['mmsi']==$instrumentsData['AIS'][$vehicle]['data']['mmsi']) break;
+					if(isset($instrumentsData['ALARM']['MOB']['points'][$i]['mmsi'])
+					 and $instrumentsData['ALARM']['MOB']['points'][$i]['mmsi']==$instrumentsData['AIS'][$vehicle]['data']['mmsi']) break;
 				};
-				if($i!==null and $i<$maxi){	//echo "такая точка №$i уже есть, обновим, но тревогу поднимать не будем   \n";
+				//echo "i=$i; maxi=$maxi;\n";
+				// Признак изменения передаётся, только если изменились координаты или текст
+				// а если они не меняются, то тот, кто пропустил сообщение - больше его не получит.
+				// Правильно ли это? Не зря по AIS оно передаётся каждую минуту?
+				// Но локальные клиенты получат сообщение, потому что здесь MOB есть,
+				// а у них - нет. А вот netAIS - больше не получит.
+				// netAIS получит, потому что получает данные по POLL, и они ему отдаются все в любом случае.
+				if($i<$maxi){	//echo "такая точка №$i с mmsi={$instrumentsData['AIS'][$vehicle]['data']['mmsi']}; уже есть, обновим.   \n"; 
+					$instrumentsData['ALARM']['MOB']['status'] = true;
+					// Обновлять будем, если координаты старой и новой не совпадают.
 					if(isset($instrumentsData['AIS'][$vehicle]['data']['lat']) and ($instrumentsData['AIS'][$vehicle]['data']['lat'] !== $instrumentsData['ALARM']['MOB']['points'][$i]['coordinates'][1])
 					 and isset($instrumentsData['AIS'][$vehicle]['data']['lon']) and ($instrumentsData['AIS'][$vehicle]['data']['lon'] !== $instrumentsData['ALARM']['MOB']['points'][$i]['coordinates'][0])){
 						$instrumentsData['ALARM']['MOB']['points'][$i]['coordinates']=array($instrumentsData['AIS'][$vehicle]['data']['lon'],$instrumentsData['AIS'][$vehicle]['data']['lat']);
 						$instrumentsData['ALARM']['MOB']['timestamp'] = $instrumentsData['AIS'][$vehicle]['timestamp'];
-						$instrumentsDataUpdated['ALARM'] = true;
 					};
 					if(isset($instrumentsData['AIS'][$vehicle]['data']['safety_related_text']) and ($instrumentsData['AIS'][$vehicle]['data']['safety_related_text'] !== $instrumentsData['ALARM']['MOB']['points'][$i]['safety_related_text'])){
 						$instrumentsData['ALARM']['MOB']['points'][$i]['safety_related_text']=$instrumentsData['AIS'][$vehicle]['data']['safety_related_text'];
 						$instrumentsDataUpdated['ALARM'] = true;	// timestamp там нет
 					};
 				}
-				else{	//echo "такой точки ещё нет, создадим и поднимем тревогу    \n";
-					if(isset($instrumentsData['AIS'][$vehicle]['data']['lat']) and isset($instrumentsData['AIS'][$vehicle]['data']['lon'])){
-						$instrumentsData['ALARM']['MOB']['points'][] = array(
+				else{	//echo "такой точки с mmsi={$instrumentsData['AIS'][$vehicle]['data']['mmsi']}; ещё нет, создадим и поднимем тревогу    \n";
+					if(!isset($instrumentsData['AIS'][$vehicle]['data']['lat']) or !isset($instrumentsData['AIS'][$vehicle]['data']['lon'])){
+						// AIS MOB может посылать сигнал до того, как получит положение от ГПС.
+						// Поэтому дадим такой точке свои координаты
+						$curr_tpv = makeWATCH();
+						if($curr_tpv["lat"] and $curr_tpv["lon"]){
+							$instrumentsData['AIS'][$vehicle]['data']['lon'] = $curr_tpv["lon"];
+							$instrumentsData['AIS'][$vehicle]['data']['lat'] = $curr_tpv["lat"];
+						}
+						else {
+							$instrumentsData['AIS'][$vehicle]['data']['lon'] = null;
+							$instrumentsData['AIS'][$vehicle]['data']['lat'] = null;
+						};
+					};
+					$instrumentsData['ALARM']['MOB']['points'][] = array(
+						'coordinates'=> array($instrumentsData['AIS'][$vehicle]['data']['lon'],$instrumentsData['AIS'][$vehicle]['data']['lat']),	// "The first two elements are longitude and latitude" https://datatracker.ietf.org/doc/html/rfc7946#section-3.1.1
+						'mmsi'=>$instrumentsData['AIS'][$vehicle]['data']['mmsi'],
+						'safety_related_text'=>$instrumentsData['AIS'][$vehicle]['data']['safety_related_text']
+					);
+					$instrumentsData['ALARM']['MOB']['status'] = true;
+					$instrumentsData['ALARM']['MOB']['timestamp'] = $instrumentsData['AIS'][$vehicle]['timestamp'];
+					$instrumentsDataUpdated['ALARM'] = true;
+				};
+				unset($instrumentsData['AIS'][$vehicle]);	// удалим этот mmsi из данных AIS
+			}
+			else{	//echo "режима MOB нет, поднимем тревогу для точки с mmsi={$instrumentsData['AIS'][$vehicle]['data']['mmsi']};           \n";
+				if(!isset($instrumentsData['AIS'][$vehicle]['data']['lat']) or !isset($instrumentsData['AIS'][$vehicle]['data']['lon'])){
+					// AIS MOB может посылать сигнал до того, как получит положение от ГПС.
+					// Поэтому дадим такой точке свои координаты
+					$curr_tpv = makeWATCH();
+					if($curr_tpv["lat"] and $curr_tpv["lon"]){
+						$instrumentsData['AIS'][$vehicle]['data']['lon'] = $curr_tpv["lon"];
+						$instrumentsData['AIS'][$vehicle]['data']['lat'] = $curr_tpv["lat"];
+					}
+					else {
+						$instrumentsData['AIS'][$vehicle]['data']['lon'] = null;
+						$instrumentsData['AIS'][$vehicle]['data']['lat'] = null;
+					};
+				};
+				$instrumentsData['ALARM']['MOB'] = array(
+					'class'=>'MOB',
+					'status'=>true,
+					'points'=> array(
+						array(
 							'coordinates'=> array($instrumentsData['AIS'][$vehicle]['data']['lon'],$instrumentsData['AIS'][$vehicle]['data']['lat']),	// "The first two elements are longitude and latitude" https://datatracker.ietf.org/doc/html/rfc7946#section-3.1.1
 							'mmsi'=>$instrumentsData['AIS'][$vehicle]['data']['mmsi'],
 							'safety_related_text'=>$instrumentsData['AIS'][$vehicle]['data']['safety_related_text']
-						);
-						$instrumentsData['ALARM']['MOB']['status'] = true;
-						$instrumentsData['ALARM']['MOB']['timestamp'] = $instrumentsData['AIS'][$vehicle]['timestamp'];
-						$instrumentsDataUpdated['ALARM'] = true;
-					};
-				};
-			}
-			else{	// echo "режима MOB нет, поднимем тревогу                 \n";
-				if(isset($instrumentsData['AIS'][$vehicle]['data']['lat']) and isset($instrumentsData['AIS'][$vehicle]['data']['lon'])){
-					$instrumentsData['ALARM']['MOB'] = array(
-						'class'=>'MOB',
-						'status'=>true,
-						'points'=> array(
-							array(
-								'coordinates'=> array($instrumentsData['AIS'][$vehicle]['data']['lon'],$instrumentsData['AIS'][$vehicle]['data']['lat']),	// "The first two elements are longitude and latitude" https://datatracker.ietf.org/doc/html/rfc7946#section-3.1.1
-								'mmsi'=>$instrumentsData['AIS'][$vehicle]['data']['mmsi'],
-								'safety_related_text'=>$instrumentsData['AIS'][$vehicle]['data']['safety_related_text']
-							)
-						),
-						'timestamp'=>$instrumentsData['AIS'][$vehicle]['timestamp']
-					);
-					$instrumentsDataUpdated['ALARM'] = true;
-				};
+						)
+					),
+					'timestamp'=>$instrumentsData['AIS'][$vehicle]['timestamp']
+				);
+				// Если удалить этот vehacle из $instrumentsData['AIS'], то потеряется его timestamp
+				// и старые сообщения будут обрабатываться как новые.
+				// с другой стороны, а откуда там старые сообщения? А кто их знает? Реальных данных нет.
+				// Но если не удалять - будет пурга с порядком прихода сообщений, и вместе с MOB
+				// будет показываться кораблик.
+				unset($instrumentsData['AIS'][$vehicle]);	// удалим этот mmsi из данных AIS
+				$instrumentsDataUpdated['ALARM'] = true;
 			};
 			
-			unset($instrumentsData['AIS'][$vehicle]);	// удалим этот mmsi из данных AIS
-			unset($instrumentsDataUpdated['AIS']);	// теперь достаточно присвоить false
 			//echo "vehicle=$vehicle; instrumentsDataUpdated['ALARM']={$instrumentsDataUpdated['ALARM']};         \n";
+			//if($instrumentsDataUpdated['ALARM']) echo "vehicle=$vehicle; instrumentsDataUpdated['ALARM']={$instrumentsDataUpdated['ALARM']};         \n";
 			return $instrumentsDataUpdated;	// вообще больше никакая обработка не нужна? Можно протормозить с контролем столкновений и актуальностью данных?
 			//break 2;	// потому что именно для этого case не нужно считать контроль столкновений, когда как для всего остального - нужно
 		default:
@@ -1073,8 +1207,13 @@ case 'MOB':	// есть один объект MOB в $instrumentsData['ALARM']
 	if($inInstrumentsData['timestamp']<=$instrumentsData['ALARM']['MOB']['timestamp']) break;
 	$instrumentsData['ALARM']['MOB']['class'] = 'MOB';
 	$instrumentsData['ALARM']['MOB']['status'] = $inInstrumentsData['status'];
+	foreach($inInstrumentsData['points'] as &$point){
+		if(!$point['mmsi']) $point['mmsi'] = $boatInfo['mmsi'];	// если там точки без mmsi - то это наши точки
+	};
 	$instrumentsData['ALARM']['MOB']['points'] = $inInstrumentsData['points'];
 	$instrumentsData['ALARM']['MOB']['timestamp'] = $inInstrumentsData['timestamp'];
+	$instrumentsData['ALARM']['MOB']['source'] = $inInstrumentsData['source'];
+	if(!$instrumentsData['ALARM']['MOB']['source']) $instrumentsData['ALARM']['MOB']['source'] = '972'.substr($boatInfo['mmsi'],3);
 	$instrumentsDataUpdated['ALARM'] = $sockKey;
 	//echo "instrumentsDataUpdated['ALARM']={$instrumentsDataUpdated['ALARM']};\n";
 	//echo "recieved new MOB data: "; print_r($instrumentsData['ALARM']['MOB']);
@@ -1091,7 +1230,7 @@ $instrumentsDataUpdated = array_merge($instrumentsDataUpdated,chkCollisions());	
 $dataUpdated = time();	// Обозначим когда данные были обновлены
 
 //echo "\n Data Updated: "; print_r($instrumentsDataUpdated);
-//echo "\n instrumentsData\n"; print_r($instrumentsData);
+//echo "\n instrumentsData\n"; print_r($instrumentsData['ALARM']);
 //echo "\n instrumentsDataUpdated AIS:"; print_r($instrumentsDataUpdated['AIS']); echo "\n";
 //echo "instrumentsDataUpdated['ALARM']={$instrumentsDataUpdated['ALARM']};\n";
 return $instrumentsDataUpdated;
@@ -1099,7 +1238,7 @@ return $instrumentsDataUpdated;
 
 function chkFreshOfData(){
 /* Проверим актуальность всех данных */
-global $instrumentsData,$gpsdProxyTimeouts,$noVehicleTimeout,$boatInfo;
+global $instrumentsData,$gpsdProxyTimeouts,$boatInfo;
 $instrumentsDataUpdated = array(); // массив, где указано, какие классы изменениы и кем.
 $TPVtimeoutMultiplexor = 30;	// через сколько таймаутов свойство удаляется совсем
 // TPV
@@ -1142,18 +1281,18 @@ if($instrumentsData['TPV']){
 				unset($instrumentsData['TPV'][$device]); 	// 
 				$instrumentsDataUpdated['TPV'] = TRUE;
 				//echo "All TPV data of device $device purged by the long silence.                        \n";
-			}
-		}
-	}
-}
+			};
+		};
+	};
+};
 // AIS
 if($instrumentsData['AIS']) {	// IF быстрей, чем обработка Warning?
 	foreach($instrumentsData['AIS'] as $id => $vehicle){
 		//echo "[chkFreshOfData] AIS id=$id;\n";
-		if(($now - $vehicle['timestamp'])>$noVehicleTimeout) {
+		if(($now - $vehicle['timestamp'])>$gpsdProxyTimeouts['AIS']['noVehicle']) {
 			unset($instrumentsData['AIS'][$id]); 	// удалим цель, последний раз обновлявшуюся давно
 			$instrumentsDataUpdated['AIS'] = TRUE;
-			//echo "Данные AIS для судна ".$id." протухли на ".($now - $vehicle['timestamp'])." сек при норме $noVehicleTimeout       \n";
+			//echo "Данные AIS для судна ".$id." протухли на ".($now - $vehicle['timestamp'])." сек при норме {$gpsdProxyTimeouts['AIS']['noVehicle']}       \n";
 			continue;	// к следующей цели AIS
 		}
 		if($instrumentsData['AIS'][$id]['cachedTime']){ 	// поищем, не протухло ли чего
@@ -1176,11 +1315,12 @@ if($instrumentsData['AIS']) {	// IF быстрей, чем обработка Wa
 					}
 					$instrumentsDataUpdated['AIS'] = TRUE;
 					//echo "Данные AIS ".$type." для судна ".$id." совсем протухли на ".($now - $cachedTime)." сек                     \n";
-				}
-			}
-		}
-	}
-}
+				};
+			};
+		};
+	};
+};
+
 return $instrumentsDataUpdated;
 } // end function chkFreshOfData
 
@@ -1190,7 +1330,7 @@ function dataSourceSave(){
 global $instrumentsData,$backupFileName,$backupTimeout,$lastBackupSaved;
 
 if((time()-$lastBackupSaved)>$backupTimeout){
-	file_put_contents($backupFileName,json_encode($instrumentsData));
+	file_put_contents($backupFileName,json_encode($instrumentsData,JSON_PRESERVE_ZERO_FRACTION | JSON_UNESCAPED_UNICODE));
 	$lastBackupSaved = time();
 }
 } // end function savepsdData
@@ -1201,6 +1341,17 @@ $ais = array('class' => 'AIS');	// это не вполне правильный
 $ais['ais'] = makeAISlist();
 return $ais;
 } // end function makeAIS
+
+function makeSELF(){
+/* делает объект self - данные о своём судне */
+global $boatInfo;
+$self = $boatInfo;
+unset($self['collisionArea']);
+unset($self['squareArea']);
+$self['class'] = 'SELF';
+return $self;
+} // end function makeSELF
+
 
 function makeAISlist(){
 /* делает массив ais */
@@ -1253,6 +1404,8 @@ foreach($subscribes as $subscribe=>$v){
 		}
 		break;
 	case "ALARM":
+		// Не правильней было бы $POLL["alarm"]["mob"]? Но тогда разборщики (какие?)
+		// заточенные на два уровня, обломятся.
 		if($instrumentsData['ALARM']["MOB"]){
 			$POLL["mob"] = $instrumentsData['ALARM']["MOB"];
 		}
@@ -1260,9 +1413,12 @@ foreach($subscribes as $subscribe=>$v){
 			$POLL["collisions"] = $instrumentsData['ALARM']["collisions"];
 		}
 		break;
+	case "SELF":
+		$POLL["self"] = makeSELF();
+		break;
 	}
 }
-//echo "\n POLL:"; print_r($POLL);
+//echo "\n [makePOLL] подготовленный POLL:"; print_r($POLL);
 return $POLL;
 } // end function makePOLL
 

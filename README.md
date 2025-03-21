@@ -1,6 +1,6 @@
-[Русское описание](https://github.com/VladimirKalachikhin/gpsdPROXY/blob/master/README.ru-RU.md)  
+[Русское описание](README.ru-RU.md)  
 # gpsdPROXY daemon [![License: CC BY-NC-SA 4.0](screenshots/Cc-by-nc-sa_icon.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en)
-**version 0.8**
+**version 1**
 
 It is very convenient to access the **[gpsd](https://gpsd.io/)** from web apps with asynchronous request [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) But there are problems:  
 
@@ -17,7 +17,8 @@ I believe that such functionality must be in **gpsd**. But there is no such thin
 
 As a side, you may use **gpsdPROXY** to collect data from sources that do not have data lifetime control. For example, from VenusOS where there are no instruments data reliability control, or from SignalK, where there it timestamp at least.  
 Other side effect is storing MOB data and calculate of collision capabilities for AIS targets.  
-But you can just use **gpsdPROXY** as websocket proxy to **gpsd**.
+But you can just use **gpsdPROXY** as websocket proxy to **gpsd**.  
+However, currently the **gpsdPROXY** is actually a back-end for [GaladrielMap](https://github.com/VladimirKalachikhin/Galadriel-map/tree/master). As such, it has many features not described in the documentation.
 
 ## Features
 This cache/proxy daemon collect AIS and all TPV data from **gpsd** or other source during the user-defined lifetime and gives them by [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) request of the **gpsd** protocol.  
@@ -52,7 +53,7 @@ For the Collision detector to work correctly, you must specify the boat paramete
 
 ### MOB info
 The gpsdPROXY supports the exchange of "man overboard" information between connected clients. Output MOB data contains a GeoJSON-like object with MOB points and lines.  
-In addition, there is basic support for AIS Search and Rescue Transmitter (SART) messages AIS-MOB and AIS-EPIRB as a MOB data.
+In addition, there is a support for AIS Search and Rescue Transmitter (SART) messages AIS-MOB and AIS-EPIRB as a local MOB alarm. Besides, the [netAIS](https://github.com/VladimirKalachikhin/netAIS) alarm and MOB messages also supported.
 
 ## Compatibility
 Linux, PHP<8. The cretinous decisions made at PHP 8 do not allow the **gpsdPROXY** to work at PHP 8, and I do not want to follow these decisions.
