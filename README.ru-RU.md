@@ -87,8 +87,8 @@ WATCH={"enable":true,"json":true,"minPeriod":"2"} посылает данные 
 
 * ответ DEVICES на команду WATCH содержит только одно устройство -- сам демон. Как следствие -- не надо объединять сходные данные от разных устройств: это уже делает демон.
 * массив _sky_ в объекте POLL пуст
-* объект AIS отсутствует в ответе команды WATCH, вместо этого посылается отдельный объект
-* в объект POLL и ответ команды WATCH добавлен массив _AIS_  с ключами mmsi и данными в формате, описанном в [AIS DUMP FORMATS](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_ais_dump_formats), за исключением:
+* объект AIS не содержит полей _scaled_ и _device_, он содержит только массив _ais_: `ais:{mmsi:{}}`
+с ключами mmsi и данными в формате, описанном в [AIS DUMP FORMATS](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_ais_dump_formats), за исключением:
 
 >* скорость в м/сек
 >* координаты в десятичных градусах
@@ -96,6 +96,7 @@ WATCH={"enable":true,"json":true,"minPeriod":"2"} посылает данные 
 >* осадка в метрах
 >* длина в метрах
 >* ширина в метрах
+>* отсутствующие значения имеют значение **null**
 >* поле 'second' отсутствует, но есть поле 'timestamp' с временем unix  
 
 * Добавлен массив _ALARM_ с информацией "человек за бортом" и обнаружения столкновений.
@@ -124,27 +125,28 @@ webSocket.onmessage = function(event) {
 	case 'WATCH':
 		console.log('webSocket: Handshaiking with gpsd complit: WATCH recieved.');
 		break;
-	case 'POLL':
-		break;
 	case 'TPV':
-		realtimeTPVupdate(data);
+		console.log('webSocket: recieved TPV.');
+		break;
+	case 'ATT':
+		console.log('webSocket: recieved ATT.');
 		break;
 	case 'AIS':
-		realtimeAISupdate(data);
+		console.log('webSocket: recieved AIS.');
 		break;
 	case 'ALARM':
 		for(const alarmType in data.alarms){
 			switch(alarmType){
 			case 'MOB':
-				realtimeMOBupdate(data.alarms.MOB);
+				console.log('webSocket: recieved MOB alarm.');
 				break;
 			case 'collisions':
-				realtimeCollisionsUpdate(data.alarms.collisions);
+				console.log('webSocket: recieved collision alarm.');
 				break;
-			}
-		}
+			};
+		};
 		break;
-	}
+	};
 };
 
 webSocket.onclose = function(event) {

@@ -44,8 +44,9 @@ $ telnet localhost 3838
 ?WATCH={"enable":true,"json":true}
 */
 /*
-Version 1.0.0
+Version 1.1.0
 
+1.1.0	ATT class
 1.0.0	up to base & optimise
 0.8.0	works without GNSS data source & AIS SART support
 0.6.9	support heading and course sepately
@@ -80,7 +81,7 @@ if(!$instrumentsData) $instrumentsData = array();
 $lastBackupSaved = 0;	// время последнего сохранения кеша
 $lastClientExchange = time();	// время последней коммуникации какого-нибудь клиента
 
-$greeting = '{"class":"VERSION","release":"gpsdPROXY_0","rev":"beta","proto_major":3,"proto_minor":0}';
+$greeting = '{"class":"VERSION","release":"gpsdPROXY_1","rev":"beta","proto_major":3,"proto_minor":0}';
 $SEEN_GPS = 0x01; $SEEN_AIS = 0x08;
 $gpsdProxydevice = array(
 'class' => 'DEVICE',
@@ -355,7 +356,7 @@ do {
 
 	//echo "\n Пишем в сокеты ".count($socksWrite)."\n"; //////////////////
 	// Здесь пишется в сокеты то, что попало в $messages на предыдущем обороте. Тогда соответствующие сокеты проверены на готовность, и готовые попали в $socksWrite. 
-	// в ['output'] всегда текст или массив из текста [0] и параметров передачи (для websocket)
+	// в ['output'] элемент - всегда текст или массив из текста [0] и параметров передачи (для websocket). Но у нас всегда текст, так что - никаких параметров.
 
 /*
 	$sCnt = 0;
@@ -368,6 +369,7 @@ do {
 	//foreach($socksWriteDummy as $socket){
 		$n = array_search($socket,$sockets);	// 
 		//echo "\nДля клиента $n есть ".count($messages[$n]['output'])." сообщений         \n";
+		$msg='';
 		foreach($messages[$n]['output'] as &$msg) { 	// все накопленные сообщения. & для экономии памяти, но что-то не экономится...
 			//echo "длиной ".mb_strlen($msg,'8bit')." байт\n";
 			//echo "\nto $n:\n|$msg|\n";
@@ -405,7 +407,7 @@ do {
 		socket_clear_error($socket);
 		if(in_array($socket,$masterSocks,true)) { 	// новое подключение
 			$sock = socket_accept($socket); 	// новый сокет для подключившегося клиента
-			// Это не работает в PHP 8, где socket - это пустой объект, поэетому == false
+			// Это не работает в PHP 8, где socket - это пустой объект, поэтому == false
 			// а get_resource_type даёт ошибку, потому что аргумент не ресурс.
 			if(!$sock or (get_resource_type($sock) != 'Socket')) {
 				echo "Failed to accept incoming by: " . socket_strerror(socket_last_error($socket)) . "\n";
@@ -451,7 +453,7 @@ do {
 					$mainSourceHasStranges = true;
 				}
 				continue;	// к следующему сокету
-			}
+			};
 			$lastTryToDataSocket = time();	// отметим, когда главный источник был жив
 			//echo "\nbuf from gpsd=|$buf|\n";		
 			$inInstrumentsData = instrumentsDataDecode($buf);	// одно сообщение конкретного класса из потока
@@ -504,9 +506,9 @@ do {
 		
 		// Собственно, содержательная часть
 		// прочитали из клиентского соединения
-		if($buf) $messages[$sockKey]['zerocnt'] = 0;	// \n может быть частью составного сообщения, поэтому без trim
+		if(trim($buf)) $messages[$sockKey]['zerocnt'] = 0;	// \n может быть частью составного сообщения, поэтому без trim. Но не 100 же штук?
 		else $messages[$sockKey]['zerocnt']++;
-		if($messages[$sockKey]['zerocnt']>10){
+		if($messages[$sockKey]['zerocnt']>100){
 			echo "\n\nTo many empty strings from client socket #$sockKey $socket \n"; 	// бывает, клиент умер, а сокет -- нет. Тогда из него читается пусто.
 			chkSocks($socket);	// обычный сокет в этом случае будет просто закрыт и отовсюду удалён
 			unset($socket);
@@ -581,7 +583,7 @@ do {
 							if(rtrim($messages[$sockKey]['inBuf'])){	// пустые строки, пришедшие отдельным сообщением не записываем
 								$messages[$sockKey]['inBufS'][] = $messages[$sockKey]['inBuf'];	// всегда для websockets будем складывать сообщения в массив
 							}
-							$messages[$sockKey]['inBuf'] = $tail;
+							$messages[$sockKey]['inBuf'] = '';	// было $tail. Зачем?
 							$messages[$sockKey]['partFrame'] = '';
 							$messages[$sockKey]['frameType'] = null;
 							break;
@@ -600,8 +602,8 @@ do {
 								chkSocks($socket);	// закроет сокет
 								unset($socket);
 								continue 5;	// к следующему сокету
-							}
-						}
+							};
+						};
 						//echo "type={$messages[$sockKey]['frameType']}; FIN=$FIN;n=$n; tail:|$tail|\n";
 						break;
 					case 'partFrame':	// в буфере -- неполный фрейм, он не декодирован ($decodedData==null) и возвращён в $tail
@@ -633,13 +635,14 @@ do {
 				if(!$tail) $messages[$sockKey]['inBuf'] = '';
 
 				$buf = $messages[$sockKey]['inBufS'];
+				unset($messages[$sockKey]['inBufS']);	// должно помочь с памятью?
 				//echo "Принято от websocket'а:"; print_r($buf);
 				$messages[$sockKey]['inBufS'] = array();	// очистим буфер сообщений
 				if(!$buf) continue 2;	// к следующему сокету
 				break;	// case protocol WS
 			default:
 				//echo "Какой-то другой протокол.          \n";
-			} // end switch protocol
+			}; // end switch protocol
 		}
 		else{ 	// с этим сокетом ещё не беседовали, значит, пришёл заголовок или команда gpsd или ничего, если сокет просто открыли
 			// разберёмся с заголовком
@@ -673,13 +676,13 @@ do {
 					break;
 				default:	// ответ вообще в сокет, как это для протокола gpsd
 					$messages[$sockKey]['output'][] = $greeting."\r\n\r\n";	// приветствие gpsd
-				}
+				};
 				//echo "sockKey=$sockKey;\n";
 				$messages[$sockKey]['greeting']=TRUE;
 				$messages[$sockKey]['inBuf'] = '';					
-			}
+			};
 			continue;	// к следующему сокету
-		}
+		};
 
 		// выделим команду и параметры
 		if(!is_array($buf))	$buf = explode(';',$buf); 	// 
@@ -698,7 +701,7 @@ do {
 			if($params['subscribe']) {	// в результате $params всегда есть.
 				$params['subscribe'] = array_fill_keys(explode(',',$params['subscribe']),TRUE);
 			}
-			else $params['subscribe'] = array('TPV'=>TRUE,'AIS'=>TRUE,'ALARM'=>TRUE);
+			else $params['subscribe'] = array('TPV'=>TRUE,'ATT'=>TRUE,'AIS'=>TRUE,'ALARM'=>TRUE);
 			
 			switch($command){
 			case 'WATCH': 	// default: ?WATCH={"enable":true}; без параметров === {"enable":false} Это правильно?
@@ -713,7 +716,10 @@ do {
 							$pollWatchExist[$subscribe] = TRUE;	// отметим, что есть сокет с режимом WATCH и некоторой подпиской
 							switch($subscribe){
 							case "TPV":
-								$messages[$sockKey]['output'][] = json_encode(makeWATCH())."\r\n\r\n";
+								$messages[$sockKey]['output'][] = json_encode(makeWATCH("TPV"))."\r\n\r\n";
+								break;
+							case "ATT":
+								$messages[$sockKey]['output'][] = json_encode(makeWATCH("ATT"))."\r\n\r\n";
 								break;
 							case "AIS":
 								$messages[$sockKey]['output'][] = json_encode(makeAIS())."\r\n\r\n";

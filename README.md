@@ -87,8 +87,8 @@ The output same as described for **gpsd**, exept:
 
 * The DEVICES response of the WATCH command include one device only: the daemon self. So no need to merge data from similar devices -- the daemon do it.
 * _sky_ array in POLL object is empty.
-* AIS object missing in WATCH response, instead, this object is sent separately.
-* Added _AIS_ array to POLL object and WATCH response with key = mmsi and value as described [AIS DUMP FORMATS](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_ais_dump_formats) section, except:  
+* The AIS object does not contain _scaled_ and _device_ fields, it contains the _ais_ array only: `ais:{mmsi:{}}` 
+with value as described in [AIS DUMP FORMATS](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_ais_dump_formats) section, except:  
 
 >* Speed in m/sec
 >* Location in degrees
@@ -96,13 +96,14 @@ The output same as described for **gpsd**, exept:
 >* Draught in meters
 >* Length in meters
 >* Beam in meters
+>* undefined values is __null__
 >* No 'second' field, but has 'timestamp' as unix time.
 
 * Added _ALARM_ array to MOB and collisions.
 
 ### Typical client code
 ```
-webSocket = new WebSocket("ws://"+gpsdProxyHost+":"+gpsdProxyPort);
+let webSocket = new WebSocket("ws://"+gpsdProxyHost+":"+gpsdProxyPort);
 
 webSocket.onopen = function(e) {
 	console.log("spatialWebSocket open: Connection established");
@@ -124,27 +125,28 @@ webSocket.onmessage = function(event) {
 	case 'WATCH':
 		console.log('webSocket: Handshaiking with gpsd complit: WATCH recieved.');
 		break;
-	case 'POLL':
-		break;
 	case 'TPV':
-		realtimeTPVupdate(data);
+		console.log('webSocket: recieved TPV.');
+		break;
+	case 'ATT':
+		console.log('webSocket: recieved ATT.');
 		break;
 	case 'AIS':
-		realtimeAISupdate(data);
+		console.log('webSocket: recieved AIS.');
 		break;
 	case 'ALARM':
 		for(const alarmType in data.alarms){
 			switch(alarmType){
 			case 'MOB':
-				realtimeMOBupdate(data.alarms.MOB);
+				console.log('webSocket: recieved MOB alarm.');
 				break;
 			case 'collisions':
-				realtimeCollisionsUpdate(data.alarms.collisions);
+				console.log('webSocket: recieved collision alarm.');
 				break;
-			}
-		}
+			};
+		};
 		break;
-	}
+	};
 };
 
 webSocket.onclose = function(event) {
