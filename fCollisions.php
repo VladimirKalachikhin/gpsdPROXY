@@ -53,11 +53,11 @@ if($instrumentsData['TPV']){
 
 $wasCollissions = @count($instrumentsData['ALARM']['collisions']);	// было опасностей может не быть
 $instrumentsData['ALARM']['collisions'] = array();
-if($boatInfo['lat'] and $boatInfo['lon']) {	// координаты себя могут исчезнуть, тогда и нет коллизий, но они, возможно, были
+if(@$boatInfo['lat'] and @$boatInfo['lon']) {	// координаты себя могут исчезнуть, тогда и нет коллизий, но они, возможно, были
 	list($boatInfo['collisionArea'],$boatInfo['squareArea']) = updCollisionArea($boatInfo,$collisionDistance);	// 
 	//echo "chkCollisions self boatInfo:"; print_r($boatInfo); echo "\n";
 	//$instrumentsData['ALARM']['collisionSegments'] = array();	///////// for collision test purpose /////////
-	if($instrumentsData['AIS']){
+	if(@$instrumentsData['AIS']){
 		foreach($instrumentsData['AIS'] as $id => $vehicle){	// для каждого судна из AIS
 			if(!$vehicle['data']['lat'] or !$vehicle['data']['lon']) continue;
 			if(chkCollision($id)) {	// проверим возможность столкновения
@@ -176,13 +176,13 @@ $collisionArea = array();
 $squareArea = array();
 if(!@$boatInfo['lat'] or !@$boatInfo['lon']) return array($collisionArea,$squareArea);
 $toBack = 30;	// метров
-if($boatInfo['length']) $toBack = $boatInfo['length'];
+if(@$boatInfo['length']) $toBack = $boatInfo['length'];
 $toFront = 2*$toBack;
-if($boatInfo['to_bow']) {
+if(@$boatInfo['to_bow']) {
 	$toBack = $toBack-$boatInfo['to_bow']+$toBack/2;
 	$toFront = $toBack*3/2+$boatInfo['to_bow'];
 }
-elseif($boatInfo['to_stern']) {
+elseif(@$boatInfo['to_stern']) {
 	$toBack = $boatInfo['to_stern']+$toBack/2;
 	$toFront = $toBack*3/2+($toBack-$boatInfo['to_stern']);
 }

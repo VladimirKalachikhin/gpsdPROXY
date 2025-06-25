@@ -30,7 +30,7 @@
 // wsDecode
 // wsEncode
 
-function createSocketServer($host,$port,$connections=10){
+function createSocketServer($host,$port,$connections=1024){
 /* создаёт сокет, соединенный с $host,$port на своей машине, для приёма входящих соединений 
 в Ubuntu $connections = 0 означает максимально возможное количество соединений, а в Raspbian (Debian?) действительно 0
 */
@@ -83,7 +83,7 @@ if(! @socket_connect($sock,$host,$port)){ 	// подключаемся к сер
 	return FALSE;
 	//exit('1');
 }
-echo "[createSocketClient] Connected to $sock on $host:$port\n";
+echo "[createSocketClient] Connected to socket on $host:$port as client        \n";
 //echo gettype($sock);
 //$res = socket_write($socket, "\n");
 return $sock;
@@ -125,7 +125,7 @@ elseif(in_array($socket,$masterSocks,true)){ 	// умерло входное п�
 }
 else {	// один из входящих сокетов, или оно вообще не сокет
 	$n = array_search($socket,$sockets);	// 
-	//echo "Close client socket #$n $socket type ".gettype($socket)." by error or by life                    \n";
+	echo "Close client socket #$n type ".gettype($socket)." by error or by life                    \n";
 	if($n !== FALSE){
 		unset($sockets[$n]);
 		unset($messages[$n]);
@@ -136,7 +136,7 @@ else {	// один из входящих сокетов, или оно вооб�
 	if($n !== FALSE) unset($socksWrite[$n]);
 	$n = array_search($socket,$socksError);	// 
 	if($n !== FALSE) unset($socksError[$n]);
-	@socket_close($socket); 	// он может быть уже закрыт
+	if($socket) socket_close($socket); 	// он может быть уже закрыт
 }
 //echo "\nchkSocks sockets: "; print_r($sockets);
 } // end function chkSocks
@@ -151,7 +151,7 @@ if($socket){
 	if($res !== FALSE) { 	
 		$buf = @socket_read($socket, 2048); 	// читаем, но если PHP_NORMAL_READ, то таймаут игнорируется, и оно будет висеть вечно
 		if($buf !== FALSE){
-			//echo "|$buf|\n";
+			//echo "[chkGPSDpresent] buf=|$buf|\n";
 			$buf = json_decode($buf, true);
 			if(substr($buf["class"],0,7)=='VERSION') $return = TRUE;
 		}
@@ -614,11 +614,11 @@ if($pollWatchExist){	// есть режим WATCH, надо подготовит
 		$clientMessagesCount = count($messages[$socket]['output']);
 		//echo "для клиента $socket уже есть $clientMessagesCount сообщений, если их не уменьшится ещё {$messages[$socket]['outputSkip']} оборотов - начнём пропускать\n";
 		foreach($sockData['subscribe'] as $subscribe=>$v){
-			if($updatedTypes[$subscribe]){	// по этой подписке есть свежие данные
+			if(@$updatedTypes[$subscribe]){	// по этой подписке есть свежие данные
 				switch($subscribe){
 				case "TPV":
 					$messages[$socket]['output'][] = &$WATCH;	// строго говоря, &$WATCH, но в PHP ленивое присваивание....
-					//echo "sending TPV: $WATCH                     \n";
+					//echo "[updAndPrepare] write to send TPV to socket #$socket: |$WATCH|                     \n"; print_r($messages[$socket]['output']); echo "\n";
 					break;
 				case "ATT":
 					$messages[$socket]['output'][] = &$ATT;	// строго говоря, &$ATT, но в PHP ленивое присваивание....
@@ -702,7 +702,7 @@ case 'TPV':	// A TPV object is a time-position-velocity report.
 			// Что стрёмно, на самом деле, ибо у нас часто (всегда?) значеия float, даже когда они
 			// int, особенно 0. Почему?
 			if(is_float($value)){
-				 if($value !== $instrumentsData[$inInstrumentsData['class']][$inInstrumentsData['device']]['data'][$type]){	// Кстати, такой фокус не пройдёт в JavaScript, потому что переменной $instrumentsData['TPV'][$inInstrumentsData['device']]['data'][$type] в начале не существует.
+				 if($value !== @$instrumentsData[$inInstrumentsData['class']][$inInstrumentsData['device']]['data'][$type]){	// Кстати, такой фокус не пройдёт в JavaScript, потому что переменной $instrumentsData['TPV'][$inInstrumentsData['device']]['data'][$type] в начале не существует.
 					// php создаёт вложенную структуру, это не python и не javascript
 					$instrumentsData[$inInstrumentsData['class']][$inInstrumentsData['device']]['cachedTime'][$type] = $dataTime;
 				};
@@ -714,16 +714,24 @@ case 'TPV':	// A TPV object is a time-position-velocity report.
 			$instrumentsData[$inInstrumentsData['class']][$inInstrumentsData['device']]['data'][$type] = $value; 	// int or float
 			// Поправки
 			switch($type){
+			// Это всё будет как в TPV, как оно в gpsd, так и в ATT, где оно быть должно было бы.
 			case 'depth': 
 				if(isset($boatInfo['to_echosounder'])) $instrumentsData[$inInstrumentsData['class']][$inInstrumentsData['device']]['data'][$type] += $boatInfo['to_echosounder'];
-				if($inInstrumentsData['class']=='TPV'){	// это глубина от TPV, а не от ATT, как должно было бы быть
+			case 'temp': 
+			case 'wanglem': 
+			case 'wangler': 
+			case 'wanglet': 
+			case 'wspeedr': 
+			case 'wspeedt': 
+			case 'wtemp': 
+				if($inInstrumentsData['class']=='TPV'){	// это всё от TPV, а не от ATT, как должно было бы быть
 					$instrumentsData['ATT'][$inInstrumentsData['device']]['data']['class'] = 'ATT';
 					$instrumentsData['ATT'][$inInstrumentsData['device']]['data']['device'] = $inInstrumentsData['device'];
 					$instrumentsData['ATT'][$inInstrumentsData['device']]['data']['time'] = date(DATE_ATOM,$dataTime);
-					$instrumentsData['ATT'][$inInstrumentsData['device']]['data']['depth'] = $value; 	// то же устройство будет и в TPV и в ATT
-					$instrumentsData['ATT'][$inInstrumentsData['device']]['cachedTime']['class'] = $instrumentsData['TPV'][$inInstrumentsData['device']]['cachedTime']['depth'];
-					$instrumentsData['ATT'][$inInstrumentsData['device']]['cachedTime']['device'] = $instrumentsData['TPV'][$inInstrumentsData['device']]['cachedTime']['depth'];
-					$instrumentsData['ATT'][$inInstrumentsData['device']]['cachedTime']['depth'] = $instrumentsData['TPV'][$inInstrumentsData['device']]['cachedTime']['depth'];
+					$instrumentsData['ATT'][$inInstrumentsData['device']]['data'][$type] = $value; 	// то же устройство будет и в TPV и в ATT
+					$instrumentsData['ATT'][$inInstrumentsData['device']]['cachedTime']['class'] = $instrumentsData['TPV'][$inInstrumentsData['device']]['cachedTime'][$type];
+					$instrumentsData['ATT'][$inInstrumentsData['device']]['cachedTime']['device'] = $instrumentsData['TPV'][$inInstrumentsData['device']]['cachedTime'][$type];
+					$instrumentsData['ATT'][$inInstrumentsData['device']]['cachedTime'][$type] = $instrumentsData['TPV'][$inInstrumentsData['device']]['cachedTime'][$type];
 					$instrumentsDataUpdated['ATT'] = TRUE;
 				};
 				break;
@@ -1290,7 +1298,7 @@ foreach($instrumentsData as $class => $devices){
 		foreach($devices as $device => $data){
 			foreach($data['cachedTime'] as $type => $cachedTime){ 	// поищем, не протухло ли чего
 				//echo "type=$type; data['data'][$type]={$data['data'][$type]}; gpsdProxyTimeouts[$class][$type]={$gpsdProxyTimeouts[$class][$type]}; now=$now; cachedTime=$cachedTime;\n";
-				if((!is_null($data['data'][$type])) and $gpsdProxyTimeouts[$class][$type] and (($now - $cachedTime) > $gpsdProxyTimeouts[$class][$type])) {	// Notice if on $gpsdProxyTimeouts not have this $type
+				if((!is_null(@$data['data'][$type])) and @$gpsdProxyTimeouts[$class][$type] and (($now - $cachedTime) > @$gpsdProxyTimeouts[$class][$type])) {	// Notice if on $gpsdProxyTimeouts not have this $type
 					$instrumentsData[$class][$device]['data'][$type] = null;
 					/* // Это не нужно, потому что collision area для себя считается каждый раз непосредственно перед употреблением
 					if(in_array($type,array('lat','lon','track','speed'))){	// удалим данные для контроля столкновений, если протухли исходные
@@ -1320,7 +1328,7 @@ foreach($instrumentsData as $class => $devices){
 				// Что позволяет считать, что это устройства "давно ничего не давало".
 				// Однако, их может не быть ещё, а не уже, поэтому нужен флаг
 				foreach($instrumentsData[$class][$device]['cachedTime'] as $type => $cachedTime){	
-					if($gpsdProxyTimeouts[$class][$type]) {
+					if(@$gpsdProxyTimeouts[$class][$type]) {
 						$toDel = FALSE;
 						break;
 					};
@@ -1493,7 +1501,7 @@ if($instrumentsData[$class]){
 	foreach($instrumentsData[$class] as $device => $data){
 		foreach($data['data'] as $type => $value){
 			if($type=='device') continue;	// необязательный параметр. Указать своё устройство?
-			if($data['cachedTime'][$type]<=@$lasts[$type]) continue;	// что лучше -- старый 3D fix, или свежий 2d fix?
+			if(@$data['cachedTime'][$type]<=@$lasts[$type]) continue;	// что лучше -- старый 3D fix, или свежий 2d fix?
 			if($type=='lat' or $type=='lon' or $type=='time') $times[] = $data['cachedTime'][$type];
 			// присвоим только свежие значения
 			//if($type=='lat' or $type=='lon') continue;

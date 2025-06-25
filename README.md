@@ -90,15 +90,29 @@ The output same as described for **gpsd**, exept:
 * The AIS object does not contain _scaled_ and _device_ fields, it contains the _ais_ array only: `ais:{mmsi:{}}` 
 with value as described in [AIS DUMP FORMATS](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_ais_dump_formats) section, except:  
 
+* All data (include AIS) in SI units:
 >* Speed in m/sec
 >* Location in degrees
 >* Angles in degrees
 >* Draught in meters
 >* Length in meters
 >* Beam in meters
->* undefined values is __null__
->* No 'second' field, but has 'timestamp' as unix time.
-
+* undefined values is __null__
+* No 'second' field, but has 'timestamp' as unix time.
+* The 'depth' value from the TPV class data is also present in the ATT class data
+* The 'temp' value from the TPV class data is also present in the ATT class data
+* The all wind values from the TPV class data is also present in the ATT class data
+* The 'wtemp' value from the TPV class data is also present in the ATT class data
+>In the future, all these values will remain only in the data of the ATT class.
+* The AIS class contain only:
+```
+{"class":"AIS",
+"ais":{
+	"vessel_mmsi":{
+		...
+		vessel data
+		...
+```
 * Added _ALARM_ array to MOB and collisions.
 
 ### Typical client code
