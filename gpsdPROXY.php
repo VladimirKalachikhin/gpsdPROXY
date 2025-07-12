@@ -44,8 +44,9 @@ $ telnet localhost 3838
 ?WATCH={"enable":true,"json":true}
 */
 /*
-Version 1.2.0
+Version 1.2.1
 
+1.2.0	work on PHP8
 1.1.0	ATT class
 1.0.0	up to base & optimise
 0.8.0	works without GNSS data source & AIS SART support

@@ -36,7 +36,19 @@ $gpsdProxyTimeouts = array(  	// время в секундах после по�
 	'wanglet' => 3, 	// Wind angle true in degrees.
 	'wspeedr' => 3, 	// Wind speed relative in meters per second.
 	'wspeedt' => 3, 	// Wind speed true in meters per second.
+	'wtemp' => 30,		// Water temperature in degrees Celsius.
+	'temp' => 30,		// Temperature at the sensor, degrees centigrade.
 	'time' => 10		// Set same as lat lon. Regiure!
+),
+'ATT' => array(
+	'depth' => 5, 		// глубина
+	'wanglem' => 3, 	// Wind angle magnetic in degrees.
+	'wangler' => 3, 	// Wind angle relative in degrees.
+	'wanglet' => 3, 	// Wind angle true in degrees.
+	'wspeedr' => 3, 	// Wind speed relative in meters per second.
+	'wspeedt' => 3, 	// Wind speed true in meters per second.
+	'wtemp' => 30,		// Water temperature in degrees Celsius.
+	'temp' => 30,		// Temperature at the sensor, degrees centigrade.
 ),
 'AIS' => array( 	// AIS datatypes. Реально задержка даже от реального AIS может быть минута, а через интернет - до трёх
 	'noVehicle' => 20*60,	// время в секундах, в течении которого цель AIS сохраняется в кеше после получения от неё последней информации

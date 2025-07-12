@@ -61,7 +61,12 @@ if(@$boatInfo['lat'] and @$boatInfo['lon']) {	// координаты себя �
 		foreach($instrumentsData['AIS'] as $id => $vehicle){	// для каждого судна из AIS
 			if(!$vehicle['data']['lat'] or !$vehicle['data']['lon']) continue;
 			if(chkCollision($id)) {	// проверим возможность столкновения
-				$instrumentsData['ALARM']['collisions'][$id] = array('lat'=>$vehicle['data']['lat'],'lon'=>$vehicle['data']['lon']);
+				$instrumentsData['ALARM']['collisions'][$id] = array(
+					'lat'=>$vehicle['data']['lat'],
+					'lon'=>$vehicle['data']['lon'],
+					'dist'=>equirectangularDistance(array('lat'=>$boatInfo['lat'],'lon'=>$boatInfo['lon']),array('lat'=>$vehicle['data']['lat'],'lon'=>$vehicle['data']['lon'])),
+					'bearing'=>bearing(array(array($boatInfo['lon'],$boatInfo['lat']),array($vehicle['data']['lon'],$vehicle['data']['lat'])))
+				);
 				$instrumentsDataUpdated = array('ALARM' => true);
 				//echo "\n Collision with $id\n";
 			}

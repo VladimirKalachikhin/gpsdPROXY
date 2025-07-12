@@ -733,6 +733,7 @@ case 'TPV':	// A TPV object is a time-position-velocity report.
 					$instrumentsData['ATT'][$inInstrumentsData['device']]['cachedTime']['device'] = $instrumentsData['TPV'][$inInstrumentsData['device']]['cachedTime'][$type];
 					$instrumentsData['ATT'][$inInstrumentsData['device']]['cachedTime'][$type] = $instrumentsData['TPV'][$inInstrumentsData['device']]['cachedTime'][$type];
 					$instrumentsDataUpdated['ATT'] = TRUE;
+					//echo "[updInstrumentsData] instrumentsData['ATT']:    "; print_r($instrumentsData['ATT']); echo "\n";
 				};
 				break;
 			case 'mheading': 
@@ -1256,14 +1257,34 @@ case 'MOB':	// есть один объект MOB в $instrumentsData['ALARM']
 	$instrumentsData['ALARM']['MOB']['status'] = $inInstrumentsData['status'];
 	foreach($inInstrumentsData['points'] as &$point){
 		if(!$point['mmsi']) $point['mmsi'] = $boatInfo['mmsi'];	// если там точки без mmsi - то это наши точки
+		// А что делать, есди там нет координат? Думаю, ничего: такая точка не покажется, но все её атрибуты будут.
+		// Если же MOB включается, но координат нет, а точка от себя, то укажем свои координаты
+		// На самом деле - это пустое, потому что скорее всего, если клиент прислал MOB без
+		// координат, то и у меня координат уже нет.
+		// Но может быть, что у клиента не было связи с сервером, когда нажали кнопку MOB.
+		// Тогда у меня координаты есть, а у него - протухли.
+		//echo "[updInstrumentsData] MOB point:   ";print_r($point);echo "\n";
+		if(($inInstrumentsData['status'] and $point['mmsi'] == $boatInfo['mmsi']) and (!$point['coordinates'] or !isset($point['coordinates'][0]) or !isset($point['coordinates'][1]))){
+			$last = 0;
+			foreach($instrumentsData['TPV'] as $device => $data){
+				if(@$data['cachedTime']['lon']<=$last) continue;	// что лучше -- старый 3D fix, или свежий 2d fix?
+				if(isset($data['lon']) and isset($data['lat'])){
+					$point['coordinates'] = array();
+					$point['coordinates'][] = $data['lon'];
+					$point['coordinates'][] = $data['lat'];
+				};
+				$last = @$data['cachedTime']['lon'];
+			};
+			//echo "[updInstrumentsData] MOB point with self coordinates:   ";print_r($point);echo "\n";
+		};
 	};
 	$instrumentsData['ALARM']['MOB']['points'] = $inInstrumentsData['points'];
 	$instrumentsData['ALARM']['MOB']['timestamp'] = $inInstrumentsData['timestamp'];
 	$instrumentsData['ALARM']['MOB']['source'] = $inInstrumentsData['source'];
 	if(!$instrumentsData['ALARM']['MOB']['source']) $instrumentsData['ALARM']['MOB']['source'] = '972'.substr($boatInfo['mmsi'],3);
-	$instrumentsDataUpdated['ALARM'] = $sockKey;
-	//echo "instrumentsDataUpdated['ALARM']={$instrumentsDataUpdated['ALARM']};\n";
-	//echo "recieved new MOB data: "; print_r($instrumentsData['ALARM']['MOB']);
+	$instrumentsDataUpdated['ALARM'] = true;
+	//echo "instrumentsDataUpdated['ALARM']={$instrumentsDataUpdated['ALARM']};             \n";
+	//echo "recieved new MOB data:            "; print_r($instrumentsData['ALARM']['MOB']);
 	break;
 };
 
@@ -1308,14 +1329,14 @@ foreach($instrumentsData as $class => $devices){
 					}
 					*/
 					$instrumentsDataUpdated[$class] = TRUE;
-					//echo "Данные ".$type." от устройства ".$device." протухли на ".($now - $cachedTime)." сек            \n";
+					//echo "Данные $class:$type от устройства $device протухли на ".($now - $cachedTime)." сек            \n";
 				}
 				elseif((is_null($data['data'][$type])) and $gpsdProxyTimeouts[$class][$type] and (($now - $cachedTime) > ($TPVtimeoutMultiplexor*$gpsdProxyTimeouts[$class][$type]))) {	// Notice if on $gpsdProxyTimeouts not have this $type
 					unset($instrumentsData[$class][$device]['data'][$type]);
 					unset($instrumentsData[$class][$device]['cachedTime'][$type]);
 					$dataLongTimeOutFlag = true;
 					$instrumentsDataUpdated[$class] = TRUE;
-					//echo "Данные ".$type." от устройства ".$device." совсем протухли на ".($now - $cachedTime)." сек   \n";
+					//echo "Данные $class:$type от устройства $device совсем протухли на ".($now - $cachedTime)." сек   \n";
 				};
 			};
 			//echo "instrumentsData[$class][$device] после очистки:"; print_r($instrumentsData[$class][$device]['data']);
@@ -1518,7 +1539,8 @@ if($instrumentsData[$class]){
 //print_r($times);
 if($times) $WATCH['time'] = date(DATE_ATOM,min($times));	// могут быть присланы левые значения времени, или не присланы совсем
 else $WATCH['time'] = date(DATE_ATOM,time());
-//print_r($WATCH);
+//echo "[makeWATCH] WATCH:      "; print_r($WATCH); echo "\n";;
+//if($class == 'ATT'){echo "[makeWATCH] WATCH:      "; print_r($WATCH); echo "\n";};
 return $WATCH;
 } // end function makeWATCH
 
