@@ -70,7 +70,7 @@ require('fCollisions.php'); 	//
 if(IRun()) { 	// Я ли?
 	echo "I'm already running, exiting.\n"; 
 	return;
-}
+};
 
 // Self data
 // собственно собираемые / кешируемые данные
@@ -846,6 +846,6 @@ foreach($psList as $str) {
 }
 //echo "run=$run;\n";
 return $run;
-}
+};
 
 ?>
