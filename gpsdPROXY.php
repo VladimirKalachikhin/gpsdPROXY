@@ -66,6 +66,7 @@ require('fCommon.php'); 	//
 require('fGeodesy.php'); 	// 
 require('fGeometry.php'); 	// 
 require('fCollisions.php'); 	// 
+require('fWaypoints.php'); 	// 
 
 if(IRun()) { 	// Я ли?
 	echo "I'm already running, exiting.\n"; 
@@ -126,8 +127,23 @@ if(@$netAISconfig) {	// params.php
 }
 if(!@$boatInfo['shipname']) $boatInfo['shipname'] = (string)uniqid();
 if(!@$boatInfo['mmsi']) $boatInfo['mmsi'] = str_pad(substr(crc32($boatInfo['shipname']),0,9),9,'0'); 	// левый mmsi, похожий на настоящий -- для тупых, кому не всё равно (SignalK, к примеру)
-
 //echo "boatInfo:"; print_r($boatInfo); echo "\n";
+
+// WayPoint
+$way = array();	// путь, которым следуем, делается из gpx rte или wpt. array('lat'=>,'lon'=>)
+if(!isset($wptPrecision)){
+	if($boatInfo['length']) $wptPrecision = 5*$boatInfo['length'];
+	else $wptPrecision = 100;
+};
+if($instrumentsData['WPT']){
+	if($instrumentsData['WPT']['wayFileName']){
+		$way = wayFileLoad($instrumentsData['WPT']['wayFileName']);
+		if($way) toIndexWPT(@$instrumentsData['WPT']['index']);	// на первую точку, если вообще не указано
+		else unset($instrumentsData['WPT']);
+	}
+	else unset($instrumentsData['WPT']);
+};
+
 // Удалим себя из cron, на всякий случай
 exec("crontab -l | grep -v '".__FILE__."'  | crontab -"); 	
 

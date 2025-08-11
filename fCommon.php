@@ -157,7 +157,7 @@ if($socket){
 		}
 	}
 }
-@socket_close($socket);
+if($socket) socket_close($socket);	// Мудацкий PHP8 падает с Fatal error, если $socket - не сокет. Казлы.
 return $return;
 } // end function chkGPSDpresent
 
@@ -349,7 +349,8 @@ require_once('phpMQTT.php');
 $return = FALSE;
 $client_id = uniqid(); // make sure this is unique for connecting to sever - you could use uniqid()
 $mqtt = new Bluerhinos\phpMQTT($host, $port, $client_id);
-if($mqtt->connect(true, NULL, $username, $password)) {
+//if($mqtt->connect(true, NULL, $username, $password)) {
+if($mqtt->connect(true)) {
 	$payload = $mqtt->subscribeAndWaitForMessage('N/#', 0);
 	if($payload){
 		$return = explode('/',array_key_first($payload))[1];	// VenusOS system serial
@@ -746,7 +747,7 @@ case 'TPV':	// A TPV object is a time-position-velocity report.
 			$instrumentsData[$inInstrumentsData['class']][$inInstrumentsData['device']]['data'][$type] = (string)$value; 	// string
 			// Записываем время кеширования всех, потому что оно используется в makeWATCH для собирания самых свежих значений от разных устройств
 			$instrumentsData[$inInstrumentsData['class']][$inInstrumentsData['device']]['cachedTime'][$type] = $dataTime;
-		}
+		};
 	
 		//echo "\ngpsdProxyTimeouts[$inInstrumentsData['class']][$type]={$gpsdProxyTimeouts[$inInstrumentsData['class']][$type]};\n";
 		//echo "\ninInstrumentsData['device']={$inInstrumentsData['device']};\n";
@@ -759,6 +760,8 @@ case 'TPV':	// A TPV object is a time-position-velocity report.
 		*/
 		
 		$instrumentsDataUpdated[$inInstrumentsData['class']] = TRUE;
+
+		$instrumentsDataUpdated = array_merge($instrumentsDataUpdated,chkWPT());	// обновление путевой точки
 	}
 	break;
 case 'netAIS':
@@ -1292,7 +1295,7 @@ case 'MOB':	// есть один объект MOB в $instrumentsData['ALARM']
 $instrumentsDataUpdated = array_merge($instrumentsDataUpdated,chkFreshOfData());	// плоские массивы
 
 // Проверим опасность столкновений
-// при каждом поступлении любых данных?
+// при каждом поступлении любых данных? Проверять надо при поступлении TPV, netAIS и AIS. Т.е., в общем-то, всех.
 $instrumentsDataUpdated = array_merge($instrumentsDataUpdated,chkCollisions());	// плоские массивы
 
 $dataUpdated = time();	// Обозначим когда данные были обновлены

@@ -17,7 +17,7 @@ $instrumentsDataUpdated = array(); // массив, где указано, ка�
 // сделать лишнее при изменении цели AIS.
 // Зато здесь данные после проверки на свежесть.
 $freshTtime = 0; $freshPtime = 0; $freshVtime = 0;
-if($instrumentsData['TPV']){
+if(@$instrumentsData['TPV']){
 	foreach($instrumentsData['TPV'] as $device => $data){
 		foreach($data['cachedTime'] as $type => $cachedTime){
 			switch($type){
@@ -51,7 +51,7 @@ if($instrumentsData['TPV']){
 	}
 }
 
-$wasCollissions = @count($instrumentsData['ALARM']['collisions']);	// было опасностей может не быть
+$wasCollissions = @count($instrumentsData['ALARM']['collisions']);	// было опасностей может не быть. Это не работает в мудацком PHP8, который падает с Fatal error, если аргумент count не массив.
 $instrumentsData['ALARM']['collisions'] = array();
 if(@$boatInfo['lat'] and @$boatInfo['lon']) {	// координаты себя могут исчезнуть, тогда и нет коллизий, но они, возможно, были
 	list($boatInfo['collisionArea'],$boatInfo['squareArea']) = updCollisionArea($boatInfo,$collisionDistance);	// 
