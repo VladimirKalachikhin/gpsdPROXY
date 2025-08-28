@@ -23,6 +23,7 @@
 // makePOLL
 // makeWATCH('TPV')
 // makeALARM()
+// makeWPT()
 
 // navigationStatusEncode()
 
@@ -51,16 +52,16 @@ for($i=0;$i<100;$i++) {	// PHP Warning:  socket_bind(): Unable to bind address [
 		sleep(1);
 	}
 	else break;
-}
+};
 if(!$res) {
 	echo "Failed to binding to $host:$port by: " . socket_strerror(socket_last_error($sock)) . "\n";
 	return FALSE;
-}
+};
 $res = socket_listen($sock,$connections); 	// 
 if(!$res) {
 	echo "Failed listennig by: " . socket_strerror(socket_last_error($sock)) . "\n";
 	return FALSE;
-}
+};
 //socket_set_nonblock($sock); 	// подразумевается, что изменений в сокете всегда ждём в socket_select
 return $sock;
 } // end function createSocketServer
@@ -537,11 +538,11 @@ default:	// gpsd
 	};
 };
 
-if($requireFile) return array($dataSourceHost,$dataSourcePort,$requireFile);
+if(@$requireFile) return array($dataSourceHost,$dataSourcePort,$requireFile);
 else return FALSE;
 } // end function findSource
 
-function updAndPrepare($inInstrumentsData=array(),$sockKey=null){
+function updAndPrepare($inInstrumentsData=array(),$sockKey=null,$instrumentsDataUpdated=array()){
 /* Обновляет кеш данных и готовит к отправке, если надо, данные для режима WATCH, 
 так, что на следующем обороте они будут отправлены 
 $inInstrumentsData -- масиив ответов gpsd в режиме ?WATCH={"enable":true,"json":true};
@@ -557,15 +558,14 @@ global $messages, $pollWatchExist, $instrumentsData;
 //print_r($inInstrumentsData);
 //if($instrumentsData['AIS']['538008208']) {echo "mmsi: Princess Margo\n"; print_r($instrumentsData['AIS']['538008208']['data']); echo "\n";};
 
-$instrumentsDataUpdated = array();
 if($inInstrumentsData) {
 	foreach($inInstrumentsData as $inInstrument){
 		//echo "\n[updAndPrepare] inInstrument "; print_r($inInstrument);
 		$instrumentsDataUpdated = array_merge($instrumentsDataUpdated,updInstrumentsData($inInstrument,$sockKey));	// массивы со строковыми ключами
 		//echo "[updAndPrepare] merged instrumentsDataUpdated "; print_r($instrumentsDataUpdated);
-	}
+	};
 }
-else $instrumentsDataUpdated = updInstrumentsData(array(),$sockKey);	// вызвали для проверки протухших данных и отправке, если
+else $instrumentsDataUpdated = array_merge($instrumentsDataUpdated,updInstrumentsData(array(),$sockKey));	// вызвали для проверки протухших данных и отправке, если
 //echo "Что изменилось, instrumentsDataUpdated: "; print_r($instrumentsDataUpdated);
 if(!$instrumentsDataUpdated) return;	// если ничего не изменилось - нечего и посылать.
 
@@ -577,7 +577,7 @@ if($pollWatchExist){	// есть режим WATCH, надо подготовит
 	// чтобы для всех подключенных клиентов создать данные один раз
 	$WATCH = null; $ais = null; $ALARM = null;	
 	$updatedTypes = array_intersect_key($instrumentsDataUpdated,$pollWatchExist);	// те обновленные типы данных, на которые есть подписка
-		//if((count($updatedTypes)>1) or (!array_key_exists("TPV",$updatedTypes))) {echo "\n [updAndPrepare] updatedTypes:"; print_r($updatedTypes);echo "\n instrumentsDataUpdated:"; print_r($instrumentsDataUpdated);};
+	//if((count($updatedTypes)>1) or (!array_key_exists("TPV",$updatedTypes))) {echo "\n [updAndPrepare] updatedTypes:"; print_r($updatedTypes);echo "\n instrumentsDataUpdated:"; print_r($instrumentsDataUpdated);};
 	if(!$updatedTypes) return;	// нет ничего нового
 	foreach($updatedTypes as $updatedType => $v){
 		//echo "updatedType=$updatedType; v=$v;         \n";
@@ -597,8 +597,12 @@ if($pollWatchExist){	// есть режим WATCH, надо подготовит
 			$ALARM = json_encode(makeALARM(), JSON_PRESERVE_ZERO_FRACTION | JSON_UNESCAPED_UNICODE)."\r\n\r\n";
 			//echo "\n [updAndPrepare] prepare ALARM data to send=$ALARM";
 			break;
-		}
-	}
+		case "WPT":
+			$WPT = json_encode(makeWPT(), JSON_PRESERVE_ZERO_FRACTION | JSON_UNESCAPED_UNICODE)."\r\n\r\n";
+			//echo "\n [updAndPrepare] prepare WPT data to send=$WPT";
+			break;
+		};
+	};
 	$pollWatchExist = array();	// нет сокетов с режимом WATCH
 	$now = microtime(true);
 	foreach($messages as $socket => $sockData){	// для каждого сокета
@@ -615,36 +619,40 @@ if($pollWatchExist){	// есть режим WATCH, надо подготовит
 		$clientMessagesCount = count($messages[$socket]['output']);
 		//echo "для клиента $socket уже есть $clientMessagesCount сообщений, если их не уменьшится ещё {$messages[$socket]['outputSkip']} оборотов - начнём пропускать\n";
 		foreach($sockData['subscribe'] as $subscribe=>$v){
-			if(@$updatedTypes[$subscribe]){	// по этой подписке есть свежие данные
-				switch($subscribe){
-				case "TPV":
-					$messages[$socket]['output'][] = &$WATCH;	// строго говоря, &$WATCH, но в PHP ленивое присваивание....
-					//echo "[updAndPrepare] write to send TPV to socket #$socket: |$WATCH|                     \n"; print_r($messages[$socket]['output']); echo "\n";
-					break;
-				case "ATT":
-					$messages[$socket]['output'][] = &$ATT;	// строго говоря, &$ATT, но в PHP ленивое присваивание....
-					//echo "sending ATT=$ATT                     \n";
-					break;
-				case "AIS":
-					if($clientMessagesCount){
-						//echo "очередь слишком большая - вообще не шлём AIS  \n";
-						// Но этого не может быть, потому что в разделе записи пишутся в сокет все
-						// имеющиеся сообщения, а если он умрёт - то они просто уничтожатся.
-						// Т.е., этот механизмик не имеет смысла и никогда не работает.
-						continue 2;	// вообще не будем слать AIS
-					}
-					$messages[$socket]['output'][] = $ais;
-					//echo "sending AIS to socket=$socket;                     \n";
-					break;
-				case "ALARM":
-					$messages[$socket]['output'][] = $ALARM;
-					break;
+			if(!@$updatedTypes[$subscribe]) continue;	
+			// по этой подписке есть свежие данные
+			switch($subscribe){
+			case "TPV":
+				$messages[$socket]['output'][] = &$WATCH;	// строго говоря, &$WATCH, но в PHP ленивое присваивание....
+				//echo "[updAndPrepare] write to send TPV to socket #$socket: |$WATCH|                     \n"; print_r($messages[$socket]['output']); echo "\n";
+				break;
+			case "ATT":
+				$messages[$socket]['output'][] = &$ATT;	// строго говоря, &$ATT, но в PHP ленивое присваивание....
+				//echo "sending ATT=$ATT                     \n";
+				break;
+			case "AIS":
+				if($clientMessagesCount){
+					//echo "очередь слишком большая - вообще не шлём AIS  \n";
+					// Но этого не может быть, потому что в разделе записи пишутся в сокет все
+					// имеющиеся сообщения, а если он умрёт - то они просто уничтожатся.
+					// Т.е., этот механизмик не имеет смысла и никогда не работает.
+					continue 2;	// вообще не будем слать AIS
 				}
-			}
-		}
-	}
+				$messages[$socket]['output'][] = $ais;
+				//echo "sending AIS to socket=$socket;                     \n";
+				break;
+			case "ALARM":
+				$messages[$socket]['output'][] = $ALARM;
+				break;
+			case "WPT":
+				$messages[$socket]['output'][] = $WPT;
+				break;
+			};
+		};
+	};
 };
 }; // end function updAndPrepare
+
 
 function updInstrumentsData($inInstrumentsData=array(),$sockKey=null) {
 /* Обновляет глобальный кеш $instrumentsData отдельными сообщениями $inInstrumentsData
@@ -1455,6 +1463,7 @@ function makePOLL($subscribes=array()){
 */
 global $instrumentsData,$dataUpdated,$minSocketTimeout;
 
+//echo "\n[makePOLL] subscribes:"; print_r($subscribes); echo "\n";
 $POLL = array(	// данные для передачи клиенту как POLL, в формате gpsd
 	"class" => "POLL",
 	"time" => time(),
@@ -1504,11 +1513,14 @@ foreach($subscribes as $subscribe=>$v){
 	case "SELF":
 		$POLL["self"] = makeSELF();
 		break;
-	}
-}
-//echo "\n [makePOLL] подготовленный POLL:"; print_r($POLL);
+	case "WPT":
+		$POLL["WPT"] = makeWPT();
+		break;
+	};
+};
+//echo "\n [makePOLL] подготовленный POLL:"; print_r($POLL); echo "\n";
 return $POLL;
-} // end function makePOLL
+}; // end function makePOLL
 
 
 function makeWATCH($class='TPV'){
@@ -1545,7 +1557,7 @@ else $WATCH['time'] = date(DATE_ATOM,time());
 //echo "[makeWATCH] WATCH:      "; print_r($WATCH); echo "\n";;
 //if($class == 'ATT'){echo "[makeWATCH] WATCH:      "; print_r($WATCH); echo "\n";};
 return $WATCH;
-} // end function makeWATCH
+}; // end function makeWATCH
 
 
 function makeALARM(){
@@ -1557,7 +1569,18 @@ if(!$instrumentsData["ALARM"]) return $ret;
 $ret = array('class'=>'ALARM');
 $ret['alarms'] = $instrumentsData["ALARM"];
 return $ret;
-} // end function makeALARM
+}; // end function makeALARM
+
+
+function makeWPT(){
+global $instrumentsData;
+$ret = '';
+//echo "\n instrumentsData[WPT]:"; print_r($instrumentsData["WPT"]);
+if(!isset($instrumentsData["WPT"])) return $ret;
+$ret = $instrumentsData["WPT"];
+$ret['class'] = 'WPT';
+return $ret;
+}; // end function makeWPT
 
 
 function navigationStatusEncode($statusText){
@@ -1679,6 +1702,7 @@ else {
 
 return array($decodedData,$type,$FIN,$tail);
 }; // end function wsDecode
+
 
 function wsEncode($payload, $type = 'text', $masked = false){
 /* https://habr.com/ru/post/209864/ 

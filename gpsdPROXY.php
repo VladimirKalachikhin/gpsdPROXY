@@ -44,8 +44,9 @@ $ telnet localhost 3838
 ?WATCH={"enable":true,"json":true}
 */
 /*
-Version 1.2.1
+Version 1.3.0
 
+1.3.0	authorisation & following the route
 1.2.0	work on PHP8
 1.1.0	ATT class
 1.0.0	up to base & optimise
@@ -67,6 +68,7 @@ require('fGeodesy.php'); 	//
 require('fGeometry.php'); 	// 
 require('fCollisions.php'); 	// 
 require('fWaypoints.php'); 	// 
+if($grantsAddrList)	require('fNetGrants.php');
 
 if(IRun()) { 	// Я ли?
 	echo "I'm already running, exiting.\n"; 
@@ -79,7 +81,9 @@ if(IRun()) { 	// Я ли?
 if(@filemtime($backupFileName)<(time()-86400)) @unlink($backupFileName);	// файл был обновлён более суток назад
 else $instrumentsData = @json_decode(@file_get_contents($backupFileName), true);
 if(!$instrumentsData) $instrumentsData = array(); 	
+//echo "instrumentsData from backup:  "; print_r($instrumentsData); echo "\n";
 // Переменные
+$defaultSubscribe = array('TPV'=>TRUE,'ATT'=>TRUE,'AIS'=>TRUE,'ALARM'=>TRUE,'WPT'=>TRUE);
 $lastBackupSaved = 0;	// время последнего сохранения кеша
 $lastClientExchange = time();	// время последней коммуникации какого-нибудь клиента
 
@@ -138,10 +142,13 @@ if(!isset($wptPrecision)){
 if($instrumentsData['WPT']){
 	if($instrumentsData['WPT']['wayFileName']){
 		$way = wayFileLoad($instrumentsData['WPT']['wayFileName']);
-		if($way) toIndexWPT(@$instrumentsData['WPT']['index']);	// на первую точку, если вообще не указано
-		else unset($instrumentsData['WPT']);
+		if($way) {
+			toIndexWPT(@$instrumentsData['WPT']['index']);	// на первую точку, если вообще не указано. Здесь нет позиции, поэтому нельзя на ближайшую точку.
+		}
+		else $instrumentsData['WPT'] = array();	// укажем, что путевые точки были, но теперь их нет
 	}
-	else unset($instrumentsData['WPT']);
+	else $instrumentsData['WPT'] = array();	// укажем, что путевые точки были, но теперь их нет
+	//echo "instrumentsData['WPT']:"; print_r($instrumentsData['WPT']); echo "\n";
 };
 
 // Удалим себя из cron, на всякий случай
@@ -441,13 +448,21 @@ do {
 				echo "Failed to accept incoming by: " . socket_strerror(socket_last_error($socket)) . "\n";
 				chkSocks($socket); 	// recreate masterSock
 				continue;	// к следующему сокету
-			}
+			};
 			$lastClientExchange = time();
 			$sockets[] = $sock; 	// добавим новое входное подключение к имеющимся соединениям
 			$sockKey = array_search($sock,$sockets);	// Resource id не может быть ключём массива, поэтому используем порядковый номер. Что стрёмно.
 			$messages[$sockKey]['greeting']=FALSE;	// укажем, что приветствие не посылали. Запрос может быть не только как к gpsd, но и как к серверу websocket
 			$messages[$sockKey]['zerocnt'] = 0;
+			$messages[$sockKey]['privileged'] = true;
 			echo "New client connected: with key $sockKey                                                      \n";
+			if($grantsAddrList){	// 
+				$remoteAddress = '';
+				$remotePort = null;
+				$res = socket_getpeername($sock,$remoteAddress,$remotePort);
+				echo "Входящее соединение $res $remoteAddress,$remotePort               \n";
+				$messages[$sockKey]['privileged'] = chkPrivileged($remoteAddress);
+			};
 		    continue; 	//  к следующему сокету
 		}
 		elseif($socket === $dataSourceConnectionObject){ 	// соединение с главным источником данных
@@ -729,16 +744,15 @@ do {
 			//echo "\n\nRecieved command from Client #$sockKey $socket command=$command; params=$params;\n";
 			if($params) $params = json_decode($params,TRUE);
 			else $params = array();
+			if($params['subscribe']) {
+				$params['subscribe'] = array_fill_keys(explode(',',$params['subscribe']),TRUE);
+			};
 			//echo "\n\nparams:"; print_r($params); echo "\n";
 			// Обработаем команду
-			if($params['subscribe']) {	// в результате $params всегда есть.
-				$params['subscribe'] = array_fill_keys(explode(',',$params['subscribe']),TRUE);
-			}
-			else $params['subscribe'] = array('TPV'=>TRUE,'ATT'=>TRUE,'AIS'=>TRUE,'ALARM'=>TRUE);
-			
 			switch($command){
 			case 'WATCH': 	// default: ?WATCH={"enable":true}; без параметров === {"enable":false} Это правильно?
 				if($params['enable'] === TRUE){
+					if(!$params['subscribe']) $params['subscribe'] = $defaultSubscribe;
 					//echo "\n count(params)=".(count($params)); print_r($params);
 					if(count($params)>2){ 	// всегда есть $params['subscribe'], POLL имеет "enable":true, WATCH -- ещё "json":true
 						$messages[$sockKey]['POLL'] = 'WATCH'; 	// отметим, что WATCH получили в виде, означающем, что это не POLL, надо слать данные непрерывно
@@ -749,16 +763,19 @@ do {
 							$pollWatchExist[$subscribe] = TRUE;	// отметим, что есть сокет с режимом WATCH и некоторой подпиской
 							switch($subscribe){
 							case "TPV":
-								$messages[$sockKey]['output'][] = json_encode(makeWATCH("TPV"))."\r\n\r\n";
+								$messages[$sockKey]['output'][] = json_encode(makeWATCH("TPV"), JSON_PRESERVE_ZERO_FRACTION | JSON_UNESCAPED_UNICODE)."\r\n\r\n";
 								break;
 							case "ATT":
-								$messages[$sockKey]['output'][] = json_encode(makeWATCH("ATT"))."\r\n\r\n";
+								$messages[$sockKey]['output'][] = json_encode(makeWATCH("ATT"), JSON_PRESERVE_ZERO_FRACTION | JSON_UNESCAPED_UNICODE)."\r\n\r\n";
 								break;
 							case "AIS":
-								$messages[$sockKey]['output'][] = json_encode(makeAIS())."\r\n\r\n";
+								$messages[$sockKey]['output'][] = json_encode(makeAIS(), JSON_PRESERVE_ZERO_FRACTION | JSON_UNESCAPED_UNICODE)."\r\n\r\n";
 								break;
 							case "ALARM":
-								$messages[$sockKey]['output'][] = json_encode(makeALARM())."\r\n\r\n";
+								$messages[$sockKey]['output'][] = json_encode(makeALARM(), JSON_PRESERVE_ZERO_FRACTION | JSON_UNESCAPED_UNICODE)."\r\n\r\n";
+								break;
+							case "WPT":
+								$messages[$sockKey]['output'][] = json_encode(makeWPT(), JSON_PRESERVE_ZERO_FRACTION | JSON_UNESCAPED_UNICODE)."\r\n\r\n";
 								break;
 							}
 						}
@@ -787,13 +804,15 @@ do {
 				break;
 			case 'POLL':
 				if(!$messages[$sockKey]['POLL']) continue 2; 	// на POLL будем отзываться только после ?WATCH={"enable":true}
+				if(!$params['subscribe']) $params['subscribe'] = $defaultSubscribe;
 				$POLL = makePOLL($params['subscribe']);	// подготовим данные в соответствии с подпиской
 				//echo "\nPOLL recieved, prepare data:"; print_r($POLL);
 				//echo "\n\nPOLL  params:"; print_r($params); echo "\n";
 				$messages[$sockKey]['output'][] = json_encode($POLL)."\r\n\r\n"; 	// будем копить сообщения, вдруг клиент не готов их принять
 				unset($POLL);
 				break;
-			case 'CONNECT':	// подключиться к этому сокету как к gpsd. Используется, например, в netAISclient
+			case 'CONNECT':	// подключиться к этому сокету как к gpsd. Используется, например, в netAISclient. Эта операция требует авторизации.
+				if(!$messages[$sockKey]['privileged']) break;	// авторизация. Клиенту сообщать не будем?
 				echo "recieved CONNECT! #$sockKey $socket                                     \n";
 				if(@$params['host'] and @$params['port']) { 	// указано подключиться туда
 					// Видимо, разрешать переподключаться за пределы локальной сети как-то неправильно...
@@ -807,10 +826,17 @@ do {
 					//echo "\nCONNECT!\n";
 				}
 				break;
-			case 'UPDATE':
+			case 'UPDATE':	// Эта операция требует авторизации.
 				//echo "\n UPDATE #$sockKey $socket \n"; 
 				//print_r($params); echo "\n";
+				if(!$messages[$sockKey]['privileged']) break;	// авторизация.
 				updAndPrepare($params['updates'],$sockKey); // обновим кеш и отправим данные для режима WATCH
+				break;
+			case 'WPT':	// Эта операция требует авторизации.
+				//echo "\n WPT #$sockKey $socket privileged={$messages[$sockKey]['privileged']}\n"; 
+				//print_r($params); echo "\n";
+				if(!$messages[$sockKey]['privileged']) break;	// авторизация.
+				updAndPrepare(null,null,actionWPT($params));	// 
 				break;
 			};
 		};

@@ -131,6 +131,26 @@ If service will not present on localhost will be attempt to find service in LAN 
 // -- раз в 10 сек., поэтому, если $noClientTimeout = 10, то inetAIS не получит координаты никогда.
 $noClientTimeout = 30;	// sec., disconnect from gpsd on no any client present. Must be a 1 - 2 possible POLL requests intervals or 0 to disable.
 
+// Список адресов, обращение с которых позволяет иметь полные (белый список, white list)
+// или ограниченные (чёрный список, black list) возможности.
+// Отсутствие этой переменной означает полные возможности у всех.
+// Формат списка: 
+// перечень ip, шаблон адреса (1.2.3.*), подсеть (1.2.3/24 или 1.2.3.4/255.255.255.0), диапазон адресов (1.2.3.0-1.2.3.255)
+// Возможны как ipn4, так и ipv6 адреса, но для ipv6 можно указать только подсеть.
+// A list of addresses that can be accessed with full (whitelist)
+// or limited (blacklist) capabilities.
+// The absence of this variable means full capabilities for everyone.
+// List format:
+// list of ip, wildcard (1.2.3.*), subnet (1.2.3/24 or 1.2.3.4/255.255.255.0), span of ip (1.2.3.0-1.2.3.255)
+// Both ipn4 and ipv6 addresses are possible, but for ipv6, you can only specify a subnet.
+/*
+$grantsAddrList = array(
+'whitelist',
+array(
+	'127.0.0.0','192.168.10.2-192.168.10.100','192.168.10.102'
+)
+);
+*/
 // Параметры сохранения кеша
 // Cache backup parms
 // Кеш сохраняется каждые сек.
