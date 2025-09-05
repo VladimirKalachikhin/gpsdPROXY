@@ -5,6 +5,7 @@ function wayFileLoad($wayFileName){
 Если rte не указан - импортирует последний.
 Если нет rte - импортирует wpt.
 */
+clearstatcache();
 $way = @simplexml_load_file($wayFileName,null,LIBXML_NOENT);
 if($way === false){
 	echo "[wayFileLoad] The $wayFileName is not well-formed gpx, no waypoints available.\n";
@@ -80,7 +81,7 @@ if(!$instrumentsData['WPT']) return array();
 foreach($instrumentsData['TPV'] as $device => $data){
 	if(!isset($data['data']['lat']) or !isset($data['data']['lon'])) continue;
 	if(nearWPT(array('lat'=>$data['data']['lat'],'lon'=>$data['data']['lon']))){	// по данным этого приёмника гпс, мы доехали до следующей путевой точки
-		nextWPT();
+		if(chkWayFile()) nextWPT();
 		$instrumentsDataUpdated['WPT'] = true;
 		break;	// не будем проверять, доехали ли по данным других приёмников. Тогда мы сменим точку в худшем случае раньше, чем надо, но зато точно сменим.
 	};
@@ -144,7 +145,7 @@ for($i=0;$i<$index;$i++){
 		break;
 	};
 };
-//echo "[toIndexWPT] wpt:"; print_r($wpt); echo "\n";
+//echo "[toIndexWPT] wpt:            "; print_r($wpt); echo "\n";
 $instrumentsData['WPT']['lat'] = $wpt['lat'];
 $instrumentsData['WPT']['lon'] = $wpt['lon'];
 $instrumentsData['WPT']['index'] = key($way);
@@ -162,11 +163,11 @@ global $instrumentsData,$way;
 $instrumentsDataUpdated = array(); // массив, где указано, какие классы изменениы и кем.
 switch($params['action']){
 case 'nextWPT':
-	nextWPT();
+	if(chkWayFile()) nextWPT();	// оно возвращает true, только если файл, по которому едем, не изменился. Во всех остальных случаях оно всё делает само.
 	$instrumentsDataUpdated['WPT'] = true;
 	break;
 case 'prevWPT':
-	prevWPT();
+	if(chkWayFile()) prevWPT();
 	$instrumentsDataUpdated['WPT'] = true;
 	break;
 case 'cancel':
@@ -174,18 +175,25 @@ case 'cancel':
 	$instrumentsDataUpdated['WPT'] = true;
 	break;
 case 'start':
+	$instrumentsData['WPT'] = array();	// укажем, что путевые точки были, но теперь их нет
 	$way = wayFileLoad($params['wayFileName']);
 	//echo "[actionWPT] start: way: ";print_r($way); echo "    \n";
 	if(!$way) break;
 	$instrumentsData['WPT']['wayFileName'] = $params['wayFileName'];
+	clearstatcache();
+	$instrumentsData['WPT']['wayFileTimestamp'] = filemtime($instrumentsData['WPT']['wayFileName']);
 	// Установим текущей ближайшую точку к текущему положению по данным первого попавшегося
 	// датчика положения.
+	$nearestN = null;
 	foreach($instrumentsData['TPV'] as $device => $data){
 		if(!isset($data['data']['lat']) or !isset($data['data']['lon'])) continue;
 		$pos = array('lat'=>$data['data']['lat'],'lon'=>$data['data']['lon']);
-		//echo "[actionWPT] start: getNearestWPTi:";print_r(getNearestWPTi($pos)); echo ";\n";
-		toIndexWPT(getNearestWPTi($pos));	// на ближайшую точку
+		$nearestN = getNearestWPTi($pos);	// номер ближайшей точки
+		//echo "[actionWPT] start: nearestN=$nearestN;\n";
 		break;
+	};
+	if($nearestN !== null){	// координаты были, ближайшая точка найдена
+		toIndexWPT($nearestN);	// на ближайшую точку
 	};
 	//echo "[actionWPT] start: instrumentsData['WPT']";print_r($instrumentsData['WPT']); echo "\n";
 	$instrumentsDataUpdated['WPT'] = true;
@@ -194,4 +202,47 @@ case 'start':
 return $instrumentsDataUpdated;
 }; // end function actionWPT
 
+function chkWayFile(){
+/* Проверяет, не изменился ли файл с маршрутом. 
+Считается, что режим следования есть.
+Если файл с маршрутом изменился - то запускает следование
+по новому с ближайшей точки.
+Если с новым файлом проблемы - отключает следование.
+*/
+global $instrumentsData,$way;
+clearstatcache();
+$timestamp = @filemtime($instrumentsData['WPT']['wayFileName']);
+if(!$timestamp){	// с файлом проблемы: удалили, с ним нет связи, etc.
+	actionWPT(array('action'=>'cancel'));	// прекратим следование по маршруту
+	return false;
+};
+if($instrumentsData['WPT']['wayFileTimestamp'] == $timestamp) return true;	// файл не изменился, всё хорошо
+// Файл есть, но он изменился
+//echo "Файл {$instrumentsData['WPT']['wayFileName']} изменился на диске.\n";
+$way = wayFileLoad($instrumentsData['WPT']['wayFileName']);
+if(!$way){	// это какой-то кривой файл
+	actionWPT(array('action'=>'cancel'));	// прекратим следование по маршруту
+	return false;
+};
+$instrumentsData['WPT']['wayFileTimestamp'] = $timestamp;
+//echo "Новый way:"; print_r($way);echo "\n";
+// Установим текущей ближайшую точку к текущему положению по данным первого попавшегося
+// датчика положения.
+$nearestN = null;
+foreach($instrumentsData['TPV'] as $device => $data){
+	if(!isset($data['data']['lat']) or !isset($data['data']['lon'])) continue;
+	$pos = array('lat'=>$data['data']['lat'],'lon'=>$data['data']['lon']);
+	$nearestN = getNearestWPTi($pos);	// номер ближайшей точки
+	//echo "[chkWayFile] nearestN=$nearestN;\n";
+	break;
+};
+if($nearestN === null){	// координат нет, ближайшая точка не найдена
+	unset($instrumentsData['WPT']['lat']);
+	unset($instrumentsData['WPT']['lon']);
+	unset($instrumentsData['WPT']['index']);
+	unset($instrumentsData['WPT']['wptPrecision']);
+}
+else toIndexWPT($nearestN);	// на ближайшую точку
+return false;
+}; // end function chkWayFile
 ?>

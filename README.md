@@ -63,7 +63,8 @@ The **gpsdPROXY** makes sure that the current position is no further than the sp
 The result is given to clients subscribed to the "WPT" messages as object {"class" : "WPT"}.  
 You can cancel following with the command `?WPT={"action":"cancel"};`  
 Control: `?WPT={"action":"nextWPT"};`, `?WPT={"action":"prevWPT"};`  
-If the file *fileName.gpx* does not contain a \<rte\> object with the text "current" in the \<cmt\> field, then will take the \<wpt\>'s, starting from the one marked as "current" if it is. If there are no \<wpt\>'s, the last \<rte\> will be used.
+If the file *fileName.gpx* does not contain a \<rte\> object with the text "current" in the \<cmt\> field, then will take the \<wpt\>'s, starting from the one marked as "current" if it is. If there are no \<wpt\>'s, the last \<rte\> will be used.  
+If the file "fileName.gpx" is changed, it is reloaded and following continues from the nearest point.
 
 
 ## Compatibility

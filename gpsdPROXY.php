@@ -44,7 +44,7 @@ $ telnet localhost 3838
 ?WATCH={"enable":true,"json":true}
 */
 /*
-Version 1.3.0
+Version 1.3.1
 
 1.3.0	authorisation & following the route
 1.2.0	work on PHP8
@@ -144,6 +144,7 @@ if($instrumentsData['WPT']){
 		$way = wayFileLoad($instrumentsData['WPT']['wayFileName']);
 		if($way) {
 			toIndexWPT(@$instrumentsData['WPT']['index']);	// на первую точку, если вообще не указано. Здесь нет позиции, поэтому нельзя на ближайшую точку.
+			$instrumentsData['WPT']['wayFileTimestamp'] = filemtime($instrumentsData['WPT']['wayFileName']);
 		}
 		else $instrumentsData['WPT'] = array();	// укажем, что путевые точки были, но теперь их нет
 	}

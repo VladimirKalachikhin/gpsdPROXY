@@ -1157,6 +1157,7 @@ case 'AIS':
 	if(substr($vehicle,0,2)=='97'){
 		//echo "\n instrumentsData[AIS][$vehicle]['data']:\n"; print_r($instrumentsData['AIS'][$vehicle]['data']);echo "\n";
 		switch(substr($vehicle,0,3)){
+		case '970':	// AIS SART
 		case '972':	// AIS MOB
 		case '974':	// AIS EPIRB
 			//echo "vehicle=$vehicle не должен быть отослан как AIS. instrumentsData:\n"; //print_r($instrumentsData['AIS'][$vehicle]['data']);echo "\n";
