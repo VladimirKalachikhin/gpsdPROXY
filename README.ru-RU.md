@@ -202,6 +202,9 @@ webSocket.onerror = function(error) {
 
 ```
 
+## Демо
+Можно ознакомиться с функционированием приложения, запустив [один из демонстрационных образов виртуальных машин](https://github.com/VladimirKalachikhin/GaladrielMap-Demo-image/blob/master/README.ru-RU.md).
+
 
 ## Поддержка
 [Форум](https://github.com/VladimirKalachikhin/Galadriel-map/discussions)

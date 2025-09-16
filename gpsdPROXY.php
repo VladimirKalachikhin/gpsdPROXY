@@ -44,7 +44,7 @@ $ telnet localhost 3838
 ?WATCH={"enable":true,"json":true}
 */
 /*
-Version 1.3.1
+Version 1.3.2
 
 1.3.0	authorisation & following the route
 1.2.0	work on PHP8
@@ -461,7 +461,7 @@ do {
 				$remoteAddress = '';
 				$remotePort = null;
 				$res = socket_getpeername($sock,$remoteAddress,$remotePort);
-				echo "Входящее соединение $res $remoteAddress,$remotePort               \n";
+				//echo "Входящее соединение $res $remoteAddress,$remotePort               \n";
 				$messages[$sockKey]['privileged'] = chkPrivileged($remoteAddress);
 			};
 		    continue; 	//  к следующему сокету

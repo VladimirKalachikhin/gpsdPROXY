@@ -205,6 +205,10 @@ webSocket.onerror = function(error) {
 
 ```
 
+## Demo
+There are several [ready-to-use images available](https://github.com/VladimirKalachikhin/GaladrielMap-Demo-image/) that include the gpsdPROXY.
+
+
 ## Support
 [Forum](https://github.com/VladimirKalachikhin/Galadriel-map/discussions)
 

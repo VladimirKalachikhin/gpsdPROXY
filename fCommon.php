@@ -181,7 +181,7 @@ do { 	// при каскадном соединении нескольких gps
 	$zeroCount = 0;	// счётчик пустых строк
 	do {	// крутиться до принятия строки или до 10 пустых строк
 		//echo "Ждём:          \n";
-		$buf = socket_read($gpsdSock, 2048, PHP_NORMAL_READ); 	// читаем. Здесь 2048 байт достаточно: принимаются только короткие сообщения.
+		$buf = @socket_read($gpsdSock, 2048, PHP_NORMAL_READ); 	// читаем. Здесь 2048 байт достаточно: принимаются только короткие сообщения.
 		//echo "\nfCommon.php [connectToGPSD] buf:$buf| \n$zeroCount\n";
 		if($buf === FALSE) { 	// gpsd умер
 			echo "\nFailed to read data from gpsd: " . socket_strerror(socket_last_error()) . "\n";
