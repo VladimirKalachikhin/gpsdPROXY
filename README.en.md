@@ -1,6 +1,6 @@
-[Русское описание](README.md)  
+[Русское описание](README.ru-RU.md)  
 # gpsdPROXY daemon [![License: CC BY-NC-SA 4.0](screenshots/Cc-by-nc-sa_icon.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en)
-**version 0.8**
+**version 1**
 
 It is very convenient to access the **[gpsd](https://gpsd.io/)** from web apps with asynchronous request [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) But there are problems:  
 
@@ -17,7 +17,10 @@ I believe that such functionality must be in **gpsd**. But there is no such thin
 
 As a side, you may use **gpsdPROXY** to collect data from sources that do not have data lifetime control. For example, from VenusOS where there are no instruments data reliability control, or from SignalK, where there it timestamp at least.  
 Other side effect is storing MOB data and calculate of collision capabilities for AIS targets.  
-But you can just use **gpsdPROXY** as websocket proxy to **gpsd**.
+But you can just use **gpsdPROXY** as websocket proxy to **gpsd**.  
+However, currently the **gpsdPROXY** is actually a back-end for [GaladrielMap](https://github.com/VladimirKalachikhin/Galadriel-map/tree/master). As such, it has many features poor described in the documentation.
+
+This code is written without the use of AI, "best practices," OOP and IDE.
 
 ## Features
 This cache/proxy daemon collect AIS and all TPV data from **gpsd** or other source during the user-defined lifetime and gives them by [?POLL;](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_poll) request of the **gpsd** protocol.  
@@ -32,36 +35,56 @@ You can specify multiple addresses and ports to connect to, for example, in ipv4
 Normally, the gpspPROXY works with **gpsd** on the same or the other machine. In this case, the data is the most complete and reliable.  
 
 #### VenusOS
-The gpsdPROXY can work in VenusOS v2.80~38 or above. Or get data from any version via LAN. To do this, you need to enable "MQTT on LAN" feature. On VenusOS remote console go Settings -> Services -> MQTT on LAN (SSL) and Enable.
+The **gpsdPROXY** can work in VenusOS v2.80~38 or above. Or get data from any version via LAN. To do this, you need to enable "MQTT on LAN" feature. On VenusOS remote console go Settings -> Services -> MQTT on LAN (SSL) and Enable.
 
 ##### limitations
 * VenusOS does not provide depth and AIS services.
 * The data provided by VenusOS are not reliable enough, so be careful.
 
 #### Signal K
-The gpsdPROXY can get data from Signal K local or via LAN. If it possible, gpsdPROXY find Signal K by yourself via zeroconf service or jast on standard port.
+The **gpsdPROXY** can get data from Signal K local or via LAN. If it possible, **gpsdPROXY** find Signal K by yourself via zeroconf service or jast on standard port.
 
 ##### Limitations
-Indeed, SignalK can be used from gpsdPROXY only local. Via LAN it's odd.
+Indeed, SignalK can be used from **gpsdPROXY** only local. Via LAN it's odd.
 
 ### Collision detections
-The gpsdPROXY tries to determine the possibility of a collision according to the adopted simplified collision model based on the specified detection distance and the probability of deviations from the course.  
+The **gpsdPROXY** tries to determine the possibility of a collision according to the adopted simplified collision model based on the specified detection distance and the probability of deviations from the course.  
 ![collision model](screenshots/s1.jpeg)<br>  
 Output collisions data contains a list of mmsi and position of vessels that have a risk of collision. The [GaladrielMap](https://github.com/VladimirKalachikhin/Galadriel-map) highlights such vessels on the map and indicates the direction to them on self cursor.  
 For the Collision detector to work correctly, you must specify the boat parameters in _params.php_.
 
 ### MOB info
-The gpsdPROXY supports the exchange of "man overboard" information between connected clients. Output MOB data contains a GeoJSON object with MOB points and lines.
+The **gpsdPROXY** supports the exchange of "man overboard" information between connected clients. Output MOB data contains a GeoJSON-like object with MOB points and lines.  
+In addition, there is a support for AIS Search and Rescue Transmitter (SART) messages AIS-MOB and AIS-EPIRB as a local MOB alarm. Besides, the [netAIS](https://github.com/VladimirKalachikhin/netAIS) alarm and MOB messages also supported.
+
+### Following the route
+In response to the command `?WPT={"action":"start","wayFileName":"fileName.gpx"};` the **gpsdPROXY** loads the file *fileName.gpx* and searches for a \<rte\> object with the text "current" in the \<cmt\> field. If this, the **gpsdPROXY** finds the \<wpt\> closest to the current position in this \<rte\>,  and makes it the current waypoint.  
+The **gpsdPROXY** makes sure that the current position is no further than the specified distance from the waypoint and, when it is reached, determines the next waypoint.  
+The result is given to clients subscribed to the "WPT" messages as object {"class" : "WPT"}.  
+You can cancel following with the command `?WPT={"action":"cancel"};`  
+Control: `?WPT={"action":"nextWPT"};`, `?WPT={"action":"prevWPT"};`  
+If the file *fileName.gpx* does not contain a \<rte\> object with the text "current" in the \<cmt\> field, then will take the \<wpt\>'s, starting from the one marked as "current" if it is. If there are no \<wpt\>'s, the last \<rte\> will be used.  
+If the file "fileName.gpx" is changed, it is reloaded and following continues from the nearest point.
+
 
 ## Compatibility
-Linux, PHP<8. The cretinous decisions made at PHP 8 do not allow the **gpsdPROXY** to work at PHP 8, and I do not want to follow these decisions.
-In addition, there is basic support for AIS Search and Rescue Transmitter (SART) messages AIS-MOB and AIS-EPIRB as a MOB data.
+Linux, PHP\<8. The cretinous decisions made at PHP 8 do not allow the **gpsdPROXY** to work at PHP 8, and I do not want to follow these decisions.
 
 ## Install
 Just copy files to any dir and configure.
 
 ## Configure
-See _params.php_
+See _params.php_  
+
+### Authorisation
+A simple authorization system is designed to divide users into those who have access to all features and those whose possibilities are limited.  
+The limitations are that there is no access to the next commands:  
+
+* `CONNECT`
+* `UPDATE`
+* `WPT`
+
+You can specify a list of addresses or/and subnets from which full access is allowed (white list) or, conversely, a list of addresses and subnets from which full access is prohibited (black list). See `params.php` for details.  
 
 ## Usage
 ```
@@ -70,38 +93,63 @@ $ php gpsdPROXY.php
 Connect to the daemon on host:port from _params.php_ by **gpsd** protocol via BSD socket or websocket.
 
 ### Control
-gpsdPROXY daemon checks whether the instance is already running, and exit if it.  
+**gpsdPROXY** daemon checks whether the instance is already running, and exit if it.  
 
 ### gpsd Protocol extensions
 Added some new parameters for commands:
 
-* "subscribe":"TPV[,AIS[,ALARM]]" parameter for ?POLL and ?WATCH={"enable":true,"json":true} commands.  
+* "subscribe":"TPV[,AIS[,ALARM,[WPT]]]" parameter for ?POLL and ?WATCH={"enable":true,"json":true} commands.  
 This indicates to return TPV or AIS or ALARM data only, or a combination of them. Default - all.  
 For example: `?POLL={"subscribe":"AIS"}` return class "POLL" with "ais":[], not with "tpv":[].
 * "minPeriod":"", sec. for WATCH={"enable":true,"json":true} command. Normally the data is sent at the same speed as they come from sensors. Setting this allow get data not more often than after the specified number of seconds. For example:  
 WATCH={"enable":true,"json":true,"minPeriod":"2"} sends data every 2 seconds.
+
+New commands:
+
+* `?CONNECT={"host":"","port":""};` Requires you to connect to the specified address as to **gpsd**.
+* `?UPDATE={"updates":""};` Getting data in **gpsd** format.
+* `?WPT={"action":"start","wayFileName":"fileName.gpx"};` WPT control.
+* `?WPT={"action":"cancel"};`
+* `?WPT={"action":"nextWPT"};`
+* `?WPT={"action":"prevWPT"};`
+
 
 ### Output
 The output same as described for **gpsd**, exept:  
 
 * The DEVICES response of the WATCH command include one device only: the daemon self. So no need to merge data from similar devices -- the daemon do it.
 * _sky_ array in POLL object is empty.
-* AIS object missing in WATCH response, instead, this object is sent separately.
-* Added _AIS_ array to POLL object and WATCH response with key = mmsi and value as described [AIS DUMP FORMATS](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_ais_dump_formats) section, except:  
+* The AIS object does not contain _scaled_ and _device_ fields, it contains the _ais_ array only: `ais:{mmsi:{}}` 
+with value as described in [AIS DUMP FORMATS](https://gpsd.gitlab.io/gpsd/gpsd_json.html#_ais_dump_formats) section, except:  
 
+* All data (include AIS) in SI units:
 >* Speed in m/sec
 >* Location in degrees
 >* Angles in degrees
 >* Draught in meters
 >* Length in meters
 >* Beam in meters
->* No 'second' field, but has 'timestamp' as unix time.
-
+* undefined values is __null__
+* No 'second' field, but has 'timestamp' as unix time.
+* The 'depth' value from the TPV class data is also present in the ATT class data
+* The 'temp' value from the TPV class data is also present in the ATT class data
+* The all wind values from the TPV class data is also present in the ATT class data
+* The 'wtemp' value from the TPV class data is also present in the ATT class data
+>In the future, all these values will remain only in the data of the ATT class.
+* The AIS class contain only:
+```
+{"class":"AIS",
+"ais":{
+	"vessel_mmsi":{
+		...
+		vessel data
+		...
+```
 * Added _ALARM_ array to MOB and collisions.
 
 ### Typical client code
 ```
-webSocket = new WebSocket("ws://"+gpsdProxyHost+":"+gpsdProxyPort);
+let webSocket = new WebSocket("ws://"+gpsdProxyHost+":"+gpsdProxyPort);
 
 webSocket.onopen = function(e) {
 	console.log("spatialWebSocket open: Connection established");
@@ -123,27 +171,28 @@ webSocket.onmessage = function(event) {
 	case 'WATCH':
 		console.log('webSocket: Handshaiking with gpsd complit: WATCH recieved.');
 		break;
-	case 'POLL':
-		break;
 	case 'TPV':
-		realtimeTPVupdate(data);
+		console.log('webSocket: recieved TPV.');
+		break;
+	case 'ATT':
+		console.log('webSocket: recieved ATT.');
 		break;
 	case 'AIS':
-		realtimeAISupdate(data);
+		console.log('webSocket: recieved AIS.');
 		break;
 	case 'ALARM':
 		for(const alarmType in data.alarms){
 			switch(alarmType){
 			case 'MOB':
-				realtimeMOBupdate(data.alarms.MOB);
+				console.log('webSocket: recieved MOB alarm.');
 				break;
 			case 'collisions':
-				realtimeCollisionsUpdate(data.alarms.collisions);
+				console.log('webSocket: recieved collision alarm.');
 				break;
-			}
-		}
+			};
+		};
 		break;
-	}
+	};
 };
 
 webSocket.onclose = function(event) {
@@ -155,6 +204,10 @@ webSocket.onerror = function(error) {
 };
 
 ```
+
+## Demo
+There are several [ready-to-use images available](https://github.com/VladimirKalachikhin/GaladrielMap-Demo-image/) that include the gpsdPROXY.
+
 
 ## Support
 [Forum](https://github.com/VladimirKalachikhin/Galadriel-map/discussions)

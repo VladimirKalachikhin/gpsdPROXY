@@ -18,6 +18,13 @@ Daemon
 Caches TPV and AIS data from gpsd, and returns them on request ?POLL; of the gpsd protocol
 As side: daemon keeps instruments alive and power consuming.  
 
+Added some new parameters for commands:
+    "subscribe":"TPV[,AIS[,ALARM]]" parameter for ?POLL and ?WATCH={"enable":true,"json":true} commands.
+    This indicates to return TPV or AIS or ALARM data only, or a combination of them. Default - all.
+    For example: ?POLL={"subscribe":"AIS"} return class "POLL" with "ais":[], not with "tpv":[].
+    "minPeriod":"", sec. for WATCH={"enable":true,"json":true} command. Normally the data is sent at the same speed as they come from sensors. Setting this allow get data not more often than after the specified number of seconds. For example:
+    WATCH={"enable":true,"json":true,"minPeriod":"2"} sends data every 2 seconds.
+
 The ?WATCH={“enable”:true,“json”:true} mode also available: via cocket or websocket. 
 The websocket is partially implemented but mostly work.
 
@@ -30,10 +37,19 @@ Call:
 $ nc localhost 3838
 $ cgps localhost:3838
 $ telnet localhost 3838
+?DEVICES;
+?WATCH={"enable":true};
+?POLL;
+
+?WATCH={"enable":true,"json":true}
 */
 /*
-Version 0.8.1
+Version 1.3.2
 
+1.3.0	authorisation & following the route
+1.2.0	work on PHP8
+1.1.0	ATT class
+1.0.0	up to base & optimise
 0.8.0	works without GNSS data source & AIS SART support
 0.6.9	support heading and course sepately
 0.6.5	restart by cron
@@ -51,11 +67,13 @@ require('fCommon.php'); 	//
 require('fGeodesy.php'); 	// 
 require('fGeometry.php'); 	// 
 require('fCollisions.php'); 	// 
+require('fWaypoints.php'); 	// 
+if($grantsAddrList)	require('fNetGrants.php');
 
 if(IRun()) { 	// Я ли?
 	echo "I'm already running, exiting.\n"; 
 	return;
-}
+};
 
 // Self data
 // собственно собираемые / кешируемые данные
@@ -63,11 +81,13 @@ if(IRun()) { 	// Я ли?
 if(@filemtime($backupFileName)<(time()-86400)) @unlink($backupFileName);	// файл был обновлён более суток назад
 else $instrumentsData = @json_decode(@file_get_contents($backupFileName), true);
 if(!$instrumentsData) $instrumentsData = array(); 	
+//echo "instrumentsData from backup:  "; print_r($instrumentsData); echo "\n";
 // Переменные
+$defaultSubscribe = array('TPV'=>TRUE,'ATT'=>TRUE,'AIS'=>TRUE,'ALARM'=>TRUE,'WPT'=>TRUE);
 $lastBackupSaved = 0;	// время последнего сохранения кеша
 $lastClientExchange = time();	// время последней коммуникации какого-нибудь клиента
 
-$greeting = '{"class":"VERSION","release":"gpsdPROXY_0","rev":"beta","proto_major":3,"proto_minor":0}';
+$greeting = '{"class":"VERSION","release":"gpsdPROXY_1","rev":"beta","proto_major":3,"proto_minor":0}';
 $SEEN_GPS = 0x01; $SEEN_AIS = 0x08;
 $gpsdProxydevice = array(
 'class' => 'DEVICE',
@@ -89,8 +109,8 @@ array_walk_recursive($gpsdProxyTimeouts, function($val){
 if($minSocketTimeout == 86400) $minSocketTimeout = 10;
 //echo "minSocketTimeout=$minSocketTimeout;\n";
 
-// Характеристики судна, в основном для контроля столкновений
-if($netAISconfig) {	// params.php
+// Характеристики судна, в основном для контроля столкновений, но mmsi необходим для netAIS
+if(@$netAISconfig) {	// params.php
 	$saveBoatInfo = $boatInfo;	// params.php
 	$boatInfo = parse_ini_file($netAISconfig,FALSE,INI_SCANNER_TYPED);
 	if($boatInfo===false) {
@@ -98,6 +118,8 @@ if($netAISconfig) {	// params.php
 		$boatInfo = $saveBoatInfo;
 	}
 	else {
+		if(!$boatInfo['shipname']) $boatInfo['shipname'] = $saveBoatInfo['shipname'];
+		if(!$boatInfo['mmsi']) $boatInfo['mmsi'] = $saveBoatInfo['mmsi'];
 		if(!$boatInfo['length']) $boatInfo['length'] = $saveBoatInfo['length'];
 		if(!$boatInfo['beam']) $boatInfo['beam'] = $saveBoatInfo['beam'];
 		if(!$boatInfo['to_bow']) $boatInfo['to_bow'] = $saveBoatInfo['to_bow'];
@@ -107,7 +129,29 @@ if($netAISconfig) {	// params.php
 	}
 	unset($saveBoatInfo);
 }
+if(!@$boatInfo['shipname']) $boatInfo['shipname'] = (string)uniqid();
+if(!@$boatInfo['mmsi']) $boatInfo['mmsi'] = str_pad(substr(crc32($boatInfo['shipname']),0,9),9,'0'); 	// левый mmsi, похожий на настоящий -- для тупых, кому не всё равно (SignalK, к примеру)
 //echo "boatInfo:"; print_r($boatInfo); echo "\n";
+
+// WayPoint
+$way = array();	// путь, которым следуем, делается из gpx rte или wpt. array('lat'=>,'lon'=>)
+if(!isset($wptPrecision)){
+	if($boatInfo['length']) $wptPrecision = 5*$boatInfo['length'];
+	else $wptPrecision = 100;
+};
+if($instrumentsData['WPT']){
+	if($instrumentsData['WPT']['wayFileName']){
+		$way = wayFileLoad($instrumentsData['WPT']['wayFileName']);
+		if($way) {
+			toIndexWPT(@$instrumentsData['WPT']['index']);	// на первую точку, если вообще не указано. Здесь нет позиции, поэтому нельзя на ближайшую точку.
+			$instrumentsData['WPT']['wayFileTimestamp'] = filemtime($instrumentsData['WPT']['wayFileName']);
+		}
+		else $instrumentsData['WPT'] = array();	// укажем, что путевые точки были, но теперь их нет
+	}
+	else $instrumentsData['WPT'] = array();	// укажем, что путевые точки были, но теперь их нет
+	//echo "instrumentsData['WPT']:"; print_r($instrumentsData['WPT']); echo "\n";
+};
+
 // Удалим себя из cron, на всякий случай
 exec("crontab -l | grep -v '".__FILE__."'  | crontab -"); 	
 
@@ -177,7 +221,7 @@ do {
 		//echo "dataSourceConnectionObject=$dataSourceConnectionObject;\n";
 		if(!$dataSourceConnectionObject){
 			// Определим, к кому подключаться для получения данных
-			$res = findSource($dataSourceType,$dataSourceHost,$dataSourcePort); // Определим, к кому подключаться для получения данных
+			$res = findSource(@$dataSourceType,@$dataSourceHost,@$dataSourcePort); // Определим, к кому подключаться для получения данных, переменные из params.php
 			if($res) {
 				list($dataSourceHost,$dataSourcePort,$requireFileNew) = $res;
 				if(($requireFile !== NULL) and ($requireFileNew !== $requireFile)){	// уже был определён источник, но новыйьисточник не тот, что был раньше
@@ -226,6 +270,7 @@ do {
 		$socksError[] = $masterSock; 	// 
 	};
 	//echo "sockets:\n"; print_r($sockets);
+	$info = "";
 	if($sockets) {	// есть, возможно, клиенты, включая тех, кто с CONNECT и UPDATE
 		// А зачем было сделано принудительное переоткрытие закрытого главного источника?
 		// Как минимум, это приводит к зацикливанию, если у сокета съехала крыша, и он
@@ -240,12 +285,17 @@ do {
 			//echo "\nПереоткрыли главный сокет, gettype(dataSourceConnectionObject)=".gettype($dataSourceConnectionObject)."\n";
 		}
 		//
+		//echo "Главный источник данных имеет тип ",gettype($dataSourceConnectionObject),"    \n";
 		if(gettype($dataSourceConnectionObject)==='resource'){	// главный источник данных в порядке
 			$socksRead[] = $dataSourceConnectionObject; 	// есть клиенты -- нам нужно соединение с источником данных
 			$socksError[] = $dataSourceConnectionObject; 	// 
 			$info = " and $dataSourceHumanName";
 		}
 		elseif(gettype($dataSourceConnectionObject)==='object'){	// главный источник данных в порядке, и это venusos
+			if($dataSourceHumanName !== 'venusos'){	// в гавёном PHP8 сокет - объект, и отличить его от других объектов невозможно
+				$socksRead[] = $dataSourceConnectionObject; 	// есть клиенты -- нам нужно соединение с источником данных
+				$socksError[] = $dataSourceConnectionObject; 	// 
+			};
 			$info = " and $dataSourceHumanName";
 		}	// иначе $dataSourceConnectionObject == null, и через оборот по таймауту снова будет предпринята попытка открыть главный источник данных
 	}
@@ -291,9 +341,10 @@ do {
 	//$socksWriteDummy = array(); 	// очистим массив 
 	foreach($messages as $n => $data){ 	// пишем только в сокеты, полученные от masterSock путём socket_accept
 		//echo " в sockets объект № $n является ";var_dump($sockets[$n]); echo "    \n";
-		if($data['output'])	$socksWrite[] = $sockets[$n]; 	// если есть, что писать -- добавим этот сокет в те, в которые будем писать
+		if(@$data['output'])	$socksWrite[] = $sockets[$n]; 	// если есть, что писать -- добавим этот сокет в те, в которые будем писать
 	}
 	//$socksWriteDummy = $socksWrite;
+	//echo "\n sockets:"; print_r($sockets); echo "\n";
 	//echo "\n socksRead:"; print_r($socksRead); echo "\n";
 	//echo "\n socksWrite:"; print_r($socksWrite); echo "\n";
 	//echo "\n socksWrite содержит ".count($socksWrite)." сокетов до socket_select\n";
@@ -337,7 +388,7 @@ do {
 
 	//echo "\n Пишем в сокеты ".count($socksWrite)."\n"; //////////////////
 	// Здесь пишется в сокеты то, что попало в $messages на предыдущем обороте. Тогда соответствующие сокеты проверены на готовность, и готовые попали в $socksWrite. 
-	// в ['output'] всегда текст или массив из текста [0] и параметров передачи (для websocket)
+	// в ['output'] элемент - всегда текст или массив из текста [0] и параметров передачи (для websocket). Но у нас всегда текст, так что - никаких параметров.
 
 /*
 	$sCnt = 0;
@@ -350,13 +401,15 @@ do {
 	//foreach($socksWriteDummy as $socket){
 		$n = array_search($socket,$sockets);	// 
 		//echo "\nДля клиента $n есть ".count($messages[$n]['output'])." сообщений         \n";
-		foreach($messages[$n]['output'] as &$msg) { 	// все накопленные сообщения. & для экономии памяти, но что-то не экономится...
+		$msg='';
+		foreach($messages[$n]['output'] as $msg) { 	// все накопленные сообщения. & для экономии памяти, но что-то не экономится... Оно приводит к странному сбою памяти здесь, но нормально работает в gpsd2websocket. ???
 			//echo "длиной ".mb_strlen($msg,'8bit')." байт\n";
 			//echo "\nto $n:\n|$msg|\n";
 			$msgParams = null;
 			if(is_array($msg)) list($msg,$msgParams) = $msg;	// второй элемент -- тип фрейма
 			switch($messages[$n]['protocol']){
 			case 'WS':
+				//if(!is_string($msg)) echo "Send no WS: |$msg| не строка!\n";
 				$msg = wsEncode($msg,$msgParams);	
 				break;
 			case 'WS handshake':
@@ -364,41 +417,53 @@ do {
 			}
 			
 			$msgLen = mb_strlen($msg,'8bit');
+			socket_clear_error($socket);
 			$res = @socket_write($socket, $msg, $msgLen);
 			if($res === FALSE) { 	// клиент умер
-				echo "\nFailed to write data to socket $socket by: " . socket_strerror(@socket_last_error($sock)) . "\n";	// $sock уже может не быть сокетом
+				echo "\nFailed to write data to socket #$n by: " . socket_strerror(@socket_last_error($sock)) . "\n";	// $sock уже может не быть сокетом
 				chkSocks($socket);
+				exit;
 				continue 3;	// к следующему сокету
 			}
 			elseif($res <> $msgLen){	// клиент не принял всё. У него проблемы?
-				echo "\n\nNot all data was writed to socket $socket by: " . socket_strerror(socket_last_error($sock)) . "\n";
+				echo "\n\nNot all data was writed to socket #$n by: " . socket_strerror(socket_last_error($sock)) . "\n";
 				chkSocks($socket);
 				unset($socket);
 				continue 3;	// к следующему сокету
-			}
+			};
 			$lastClientExchange = time();
-		}
+		};
 		$messages[$n]['output'] = array();
 		unset($msg);
-	}
+	};
 	
 	//echo "\n Читаем из сокетов ".count($socksRead)."\n"; ///////////////////////
 	foreach($socksRead as $socket){
 		socket_clear_error($socket);
 		if(in_array($socket,$masterSocks,true)) { 	// новое подключение
 			$sock = socket_accept($socket); 	// новый сокет для подключившегося клиента
-			// Это не работает в PHP 8, где socket - это пустой объект, поэетому == false
+			// Это не работает в PHP 8, где socket - это пустой объект, поэтому == false
 			// а get_resource_type даёт ошибку, потому что аргумент не ресурс.
-			if(!$sock or (get_resource_type($sock) != 'Socket')) {
+			//if(!$sock or (get_resource_type($sock) != 'Socket')) {
+			if(!$sock) {	// В говняном PHP8 это объект, а в нормальном PHP - ресурс. Поэтому проверить, что именно вернулось от socket_accept довольно громоздко, а потому - не нужно.
 				echo "Failed to accept incoming by: " . socket_strerror(socket_last_error($socket)) . "\n";
 				chkSocks($socket); 	// recreate masterSock
 				continue;	// к следующему сокету
-			}
+			};
 			$lastClientExchange = time();
 			$sockets[] = $sock; 	// добавим новое входное подключение к имеющимся соединениям
 			$sockKey = array_search($sock,$sockets);	// Resource id не может быть ключём массива, поэтому используем порядковый номер. Что стрёмно.
 			$messages[$sockKey]['greeting']=FALSE;	// укажем, что приветствие не посылали. Запрос может быть не только как к gpsd, но и как к серверу websocket
-			//echo "New client connected: $sock with key $sockKey                                                      \n";
+			$messages[$sockKey]['zerocnt'] = 0;
+			$messages[$sockKey]['privileged'] = true;
+			echo "New client connected: with key $sockKey                                                      \n";
+			if($grantsAddrList){	// 
+				$remoteAddress = '';
+				$remotePort = null;
+				$res = socket_getpeername($sock,$remoteAddress,$remotePort);
+				//echo "Входящее соединение $res $remoteAddress,$remotePort               \n";
+				$messages[$sockKey]['privileged'] = chkPrivileged($remoteAddress);
+			};
 		    continue; 	//  к следующему сокету
 		}
 		elseif($socket === $dataSourceConnectionObject){ 	// соединение с главным источником данных
@@ -433,7 +498,7 @@ do {
 					$mainSourceHasStranges = true;
 				}
 				continue;	// к следующему сокету
-			}
+			};
 			$lastTryToDataSocket = time();	// отметим, когда главный источник был жив
 			//echo "\nbuf from gpsd=|$buf|\n";		
 			$inInstrumentsData = instrumentsDataDecode($buf);	// одно сообщение конкретного класса из потока
@@ -447,14 +512,15 @@ do {
 			updAndPrepare($inInstrumentsData); // обновим кеш и отправим данные для режима WATCH
 			//echo "\n gpsdData\n"; print_r($instrumentsData);
 			continue; 	// к следующему сокету
-		}
+		};
 		
 		// Читаем клиентские сокеты
-		$sockKey = @array_search($socket,$sockets); 	// 
+		$sockKey = array_search($socket,$sockets); 	// 
 		//echo "socket #$sockKey $socket"; print_r($messages[$sockKey]);
 		
-		if($messages[$sockKey]['protocol']=='WS'){ 	// с этим сокетом уже общаемся по протоколу websocket
+		if(@$messages[$sockKey]['protocol']=='WS'){ 	// с этим сокетом уже общаемся по протоколу websocket
 			$buf = @socket_read($socket, 1048576,  PHP_BINARY_READ); 	// читаем до 1MB
+			//echo "\nПРИНЯТО ОТ WS КЛИЕНТА #$sockKey ".mb_strlen($buf,'8bit')." байт, PUT={$messages[$sockKey]['PUT']};\n";
 		}
 		else {
 			// Считаем, что буфер указан достаточно большой, и всё сообщение считывается за раз.
@@ -486,15 +552,15 @@ do {
 		
 		// Собственно, содержательная часть
 		// прочитали из клиентского соединения
-		if($buf) $messages[$sockKey]['zerocnt'] = 0;	// \n может быть частью составного сообщения, поэтому без trim
+		if(trim($buf)) $messages[$sockKey]['zerocnt'] = 0;	// \n может быть частью составного сообщения, поэтому без trim. Но не 100 же штук?
 		else $messages[$sockKey]['zerocnt']++;
 		if($messages[$sockKey]['zerocnt']>10){
-			echo "\n\nTo many empty strings from client socket #$sockKey $socket \n"; 	// бывает, клиент умер, а сокет -- нет. Тогда из него читается пусто.
+			echo "\n\nTo many empty strings from client socket #$sockKey \n"; 	// бывает, клиент умер, а сокет -- нет. Тогда из него читается пусто.
 			chkSocks($socket);	// обычный сокет в этом случае будет просто закрыт и отовсюду удалён
 			unset($socket);
 		    continue;	// к следующему сокету
 		}
-		//echo "\nПРИНЯТО ОТ КЛИЕНТА # $sockKey $socket ".mb_strlen($buf,'8bit')." байт, PUT={$messages[$sockKey]['PUT']};\n";
+		//echo "\nПРИНЯТО ОТ КЛИЕНТА #$sockKey ".mb_strlen($buf,'8bit')." байт, PUT={$messages[$sockKey]['PUT']};\n";
 		//print_r($messages[$sockKey]);
 		if(@$messages[$sockKey]['PUT'] == TRUE){ 	// прочитали из соединения с каким-то источником данных с протоколом типа gpsg
 			//echo "\n buf from other # $sockKey $socket: $buf \n";
@@ -507,7 +573,7 @@ do {
 		if($messages[$sockKey]['greeting']===TRUE){ 	// с этим сокетом уже беседуем, значит -- пришли данные	
 			switch($messages[$sockKey]['protocol']){
 			case 'WS':	// ответ за запрос через websocket, здесь нет конца передачи, посылается сколько-то фреймов.
-				//echo "\nПРИНЯТО  из вебсокета ОТ КЛИЕНТА $sockKey $socket ".mb_strlen($buf,'8bit')." байт\n";
+				//echo "\nПРИНЯТО  из вебсокета ОТ КЛИЕНТА #$sockKey ".mb_strlen($buf,'8bit')." байт\n";
 				//print_r(wsDecode($buf));
 				// бывают склеенные и неполные фреймы
 				// там может быть: 1) неполный фрейм; 2) сколько-то полных фреймов, и, возможно, неполный
@@ -516,15 +582,17 @@ do {
 				$n = 0;
 				do{	// выделим из полученного полные фреймы
 					$n++;
-					if($messages[$sockKey]['FIN']=='partFrame') {
+					if(@$messages[$sockKey]['FIN']=='partFrame') {
 						//echo "предыдущий фрейм был неполный, к имеющимся ".mb_strlen($messages[$sockKey]['partFrame'],'8bit')." байт добавлено полученные ".mb_strlen($buf,'8bit')." байт, получилось ".(mb_strlen($messages[$sockKey]['partFrame'],'8bit')+mb_strlen($buf,'8bit'))." байт $n \n";
 						$buf = $messages[$sockKey]['partFrame'].$buf;	
 					}
 					
 					$res = wsDecode($buf);	// собственно декодирование: вытаскивание из потока байт фреймов
+					//echo "Результат декодирования принятого через websocket:   "; print_r($res); echo "\n";
+					$saveBuf = $buf;
 					$buf = null;
 					if($res == FALSE){
-						//echo "Bufer decode fails, will close websocket\n";
+						echo "Bufer decode fails, will close websocket\n";
 						chkSocks($socket);	// закроет сокет
 						unset($socket);
 						continue 3;	// к следующему сокету						
@@ -550,20 +618,21 @@ do {
 							//echo "в нескольких фреймах\n";
 							$realType = $messages[$sockKey]['frameType'];
 						}
-						/*
+						//
 						if($tail) {	// есть уже следующее сообщение
 							echo "однако, в буфере ".mb_strlen($tail,'8bit')." байт \n";
 						}
-						*/
+						//
 						switch($realType){	// 
 						case 'text':	// требуемое
 							$messages[$sockKey]['inBuf'] .= $decodedData;	// 
 							//echo "Принято текстовое сообщение длиной ".mb_strlen($messages[$sockKey]['inBuf'],'8bit')." байт\n";
-							//echo "decoded data={$messages[$sockKey]['inBuf']};\n";
+							//echo "decoded data=|{$messages[$sockKey]['inBuf']}|\n";
 							if(rtrim($messages[$sockKey]['inBuf'])){	// пустые строки, пришедшие отдельным сообщением не записываем
 								$messages[$sockKey]['inBufS'][] = $messages[$sockKey]['inBuf'];	// всегда для websockets будем складывать сообщения в массив
 							}
-							$messages[$sockKey]['inBuf'] = $tail;
+							$messages[$sockKey]['inBuf'] = '';	// было $tail. Зачем?
+							//$messages[$sockKey]['inBuf'] = $tail;	// было $tail. Зачем? Так работает, без - нет.
 							$messages[$sockKey]['partFrame'] = '';
 							$messages[$sockKey]['frameType'] = null;
 							break;
@@ -582,17 +651,17 @@ do {
 								chkSocks($socket);	// закроет сокет
 								unset($socket);
 								continue 5;	// к следующему сокету
-							}
-						}
-						//echo "type={$messages[$sockKey]['frameType']}; FIN=$FIN;n=$n; tail:|$tail|\n";
+							};
+						};
+						//echo "type={$messages[$sockKey]['frameType']}; FIN=$FIN;n=$n; tail:|$tail|                 \n";
 						break;
 					case 'partFrame':	// в буфере -- неполный фрейм, он не декодирован ($decodedData==null) и возвращён в $tail
-						//echo "Принят неполный фрейм типа $type, размером ".mb_strlen($tail,'8bit')." байт $n\n";
+						//echo "Принят неполный фрейм типа $type, размером ".mb_strlen($tail,'8bit')." байт на $n-м обороте.    \n";
 						if($type) {	// это первый фрейм. 
 							$messages[$sockKey]['frameType'] = $type;
 							//echo "это первый фрейм $n\n";
 						}
-						if($messages[$sockKey]['frameType']) 	{
+						if($messages[$sockKey]['frameType']){
 							$messages[$sockKey]['partFrame'] = $tail;	// я присоединяю перед декодированием
 							continue 4;	// к следующему сокету
 						}
@@ -607,7 +676,7 @@ do {
 							$messages[$sockKey]['frameType'] = $type;
 							//echo "Получен первый фрейм $n\n";
 						}
-						//echo "Собираем сообщение типа {$messages[$sockKey]['frameType']}, декодировано ".mb_strlen($decodedData,'8bit')." байт $n\n";
+						//echo "Собираем сообщение типа {$messages[$sockKey]['frameType']}, декодировано ".mb_strlen($decodedData,'8bit')." байт на $n-й оборот\n";
 						$messages[$sockKey]['inBuf'] .= $decodedData;	// собираем сообщение
 						$buf = $tail;	// для декодирования на следующем обороте ближайшего do
 					}
@@ -615,13 +684,14 @@ do {
 				if(!$tail) $messages[$sockKey]['inBuf'] = '';
 
 				$buf = $messages[$sockKey]['inBufS'];
-				//echo "Принято от websocket'а:"; print_r($buf);
+				unset($messages[$sockKey]['inBufS']);	// должно помочь с памятью?
+				//echo "Принято от websocket'а:"; print_r($buf); print_r($messages[$sockKey]);
 				$messages[$sockKey]['inBufS'] = array();	// очистим буфер сообщений
 				if(!$buf) continue 2;	// к следующему сокету
 				break;	// case protocol WS
 			default:
 				//echo "Какой-то другой протокол.          \n";
-			} // end switch protocol
+			}; // end switch protocol
 		}
 		else{ 	// с этим сокетом ещё не беседовали, значит, пришёл заголовок или команда gpsd или ничего, если сокет просто открыли
 			// разберёмся с заголовком
@@ -655,17 +725,17 @@ do {
 					break;
 				default:	// ответ вообще в сокет, как это для протокола gpsd
 					$messages[$sockKey]['output'][] = $greeting."\r\n\r\n";	// приветствие gpsd
-				}
+				};
 				//echo "sockKey=$sockKey;\n";
 				$messages[$sockKey]['greeting']=TRUE;
 				$messages[$sockKey]['inBuf'] = '';					
-			}
+			};
 			continue;	// к следующему сокету
-		}
+		};
 
 		// выделим команду и параметры
 		if(!is_array($buf))	$buf = explode(';',$buf); 	// 
-		//print_r($buf);
+		//echo "Сообщение от клиента №$sockKey: "; print_r($buf);echo "          \n";
 		foreach($buf as $command){
 			if(!$command) continue;
 			if($command[0]!='?') continue; 	// это не команда протокола gpsd
@@ -675,14 +745,15 @@ do {
 			//echo "\n\nRecieved command from Client #$sockKey $socket command=$command; params=$params;\n";
 			if($params) $params = json_decode($params,TRUE);
 			else $params = array();
-			// Обработаем команду
-			if(@$params['subscribe']) {	// в результате $params всегда есть.
+			if($params['subscribe']) {
 				$params['subscribe'] = array_fill_keys(explode(',',$params['subscribe']),TRUE);
-			}
-			else $params['subscribe'] = array('TPV'=>TRUE,'AIS'=>TRUE,'ALARM'=>TRUE);
+			};
+			//echo "\n\nparams:"; print_r($params); echo "\n";
+			// Обработаем команду
 			switch($command){
 			case 'WATCH': 	// default: ?WATCH={"enable":true}; без параметров === {"enable":false} Это правильно?
-				if($params['enable'] == TRUE){
+				if($params['enable'] === TRUE){
+					if(!$params['subscribe']) $params['subscribe'] = $defaultSubscribe;
 					//echo "\n count(params)=".(count($params)); print_r($params);
 					if(count($params)>2){ 	// всегда есть $params['subscribe'], POLL имеет "enable":true, WATCH -- ещё "json":true
 						$messages[$sockKey]['POLL'] = 'WATCH'; 	// отметим, что WATCH получили в виде, означающем, что это не POLL, надо слать данные непрерывно
@@ -693,47 +764,56 @@ do {
 							$pollWatchExist[$subscribe] = TRUE;	// отметим, что есть сокет с режимом WATCH и некоторой подпиской
 							switch($subscribe){
 							case "TPV":
-								$messages[$sockKey]['output'][] = json_encode(makeWATCH())."\r\n\r\n";
+								$messages[$sockKey]['output'][] = json_encode(makeWATCH("TPV"), JSON_PRESERVE_ZERO_FRACTION | JSON_UNESCAPED_UNICODE)."\r\n\r\n";
+								break;
+							case "ATT":
+								$messages[$sockKey]['output'][] = json_encode(makeWATCH("ATT"), JSON_PRESERVE_ZERO_FRACTION | JSON_UNESCAPED_UNICODE)."\r\n\r\n";
 								break;
 							case "AIS":
-								$messages[$sockKey]['output'][] = json_encode(makeAIS())."\r\n\r\n";
+								$messages[$sockKey]['output'][] = json_encode(makeAIS(), JSON_PRESERVE_ZERO_FRACTION | JSON_UNESCAPED_UNICODE)."\r\n\r\n";
 								break;
 							case "ALARM":
-								$messages[$sockKey]['output'][] = json_encode(makeALARM())."\r\n\r\n";
+								$messages[$sockKey]['output'][] = json_encode(makeALARM(), JSON_PRESERVE_ZERO_FRACTION | JSON_UNESCAPED_UNICODE)."\r\n\r\n";
+								break;
+							case "WPT":
+								$messages[$sockKey]['output'][] = json_encode(makeWPT(), JSON_PRESERVE_ZERO_FRACTION | JSON_UNESCAPED_UNICODE)."\r\n\r\n";
 								break;
 							}
 						}
 					}
 					else {
 						$messages[$sockKey]['POLL'] = TRUE; 	// отметим, что WATCH получили, можно отвечать на POLL
-					}
+					};
 					// вернуть DEVICES
 					$msg = array('class' => 'DEVICES', 'devices' => array($gpsdProxydevice));
 					$msg = json_encode($msg)."\r\n\r\n";
 					$messages[$sockKey]['output'][] = $msg;
 					// вернуть статус WATCH
-					$msg = '{"class":"WATCH","enable":"true","json":"true"}'."\r\n\r\n";
+					$msg = '{"class":"WATCH","enable":true,"json":true}'."\r\n\r\n";
 					$messages[$sockKey]['output'][] = $msg;
 				}
-				elseif($params['enable'] == FALSE){ 	// клиент сказал: всё
+				elseif($params['enable'] === FALSE){ 	// клиент сказал: всё
 					if($messages[$n]['protocol'] == 'WS'){
 						$messages[$sockKey]['output'][] = array("It's all",'close');	// скажем послать фрейм, прекращающий соединение. Клиент закрое сокет, потом этот сокет обработается как дефектный
 					}
 					else {
-						echo "Socket to client close by command from client             \n";
+						//echo "Socket to client close by command from client                           \n";	// это сообщение будет появляться каждый POLL, так что не надо.
 						chkSocks($socket);	// просто закроем сокет
 						unset($socket);
 					}
-				}
+				};
 				break;
 			case 'POLL':
 				if(!$messages[$sockKey]['POLL']) continue 2; 	// на POLL будем отзываться только после ?WATCH={"enable":true}
+				if(!$params['subscribe']) $params['subscribe'] = $defaultSubscribe;
 				$POLL = makePOLL($params['subscribe']);	// подготовим данные в соответствии с подпиской
 				//echo "\nPOLL recieved, prepare data:"; print_r($POLL);
+				//echo "\n\nPOLL  params:"; print_r($params); echo "\n";
 				$messages[$sockKey]['output'][] = json_encode($POLL)."\r\n\r\n"; 	// будем копить сообщения, вдруг клиент не готов их принять
 				unset($POLL);
 				break;
-			case 'CONNECT':	// подключиться к этому сокету как к gpsd. Используется, например, в netAISclient
+			case 'CONNECT':	// подключиться к этому сокету как к gpsd. Используется, например, в netAISclient. Эта операция требует авторизации.
+				if(!$messages[$sockKey]['privileged']) break;	// авторизация. Клиенту сообщать не будем?
 				echo "recieved CONNECT! #$sockKey $socket                                     \n";
 				if(@$params['host'] and @$params['port']) { 	// указано подключиться туда
 					// Видимо, разрешать переподключаться за пределы локальной сети как-то неправильно...
@@ -747,14 +827,21 @@ do {
 					//echo "\nCONNECT!\n";
 				}
 				break;
-			case 'UPDATE':
+			case 'UPDATE':	// Эта операция требует авторизации.
 				//echo "\n UPDATE #$sockKey $socket \n"; 
 				//print_r($params); echo "\n";
+				if(!$messages[$sockKey]['privileged']) break;	// авторизация.
 				updAndPrepare($params['updates'],$sockKey); // обновим кеш и отправим данные для режима WATCH
 				break;
-			}
-		}
-	}
+			case 'WPT':	// Эта операция требует авторизации.
+				//echo "\n WPT #$sockKey $socket privileged={$messages[$sockKey]['privileged']}\n"; 
+				//print_r($params); echo "\n";
+				if(!$messages[$sockKey]['privileged']) break;	// авторизация.
+				updAndPrepare(null,null,actionWPT($params));	// 
+				break;
+			};
+		};
+	};
 	//echo "\n messages: "; print_r($messages); 
 } while (true);
 
@@ -802,6 +889,6 @@ foreach($psList as $str) {
 }
 //echo "run=$run;\n";
 return $run;
-}
+};
 
 ?>

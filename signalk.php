@@ -317,7 +317,7 @@ if($buf['context'] == $self){	//echo "Сведения о себе              
 			}
 		}
 		$WATCH[] = $tpv;
-	}
+	};
 }
 else {		//echo "Сведения про другие лоханки        \n"; 
 	// AIS в смысле gpsd -- это сведения про одно судно. Здесь одно судно -- это context.
@@ -407,9 +407,9 @@ else {		//echo "Сведения про другие лоханки        \n";
 				if($sample['value']>0) $ais['to_port'] = $sample['value'];
 				else $ais['to_starboard'] = -$sample['value'];
 				break;
-			}
-		}
-	}
+			};
+		};
+	};
 	//echo "ais: "; print_r($ais);
 	$WATCH[] = $ais;	// все updates к одному судну
 }

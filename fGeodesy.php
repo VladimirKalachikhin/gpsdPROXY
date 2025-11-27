@@ -6,8 +6,8 @@ tileNum2mercOrd - Tile numbers to linear coordinates left top corner on mercator
 merc_x - Долготу в линейную координату x, Меркатор на эллипсоиде	tileproxy/fcommon.php
 merc_y - Широту в линейную координату y, Меркатор на эллипсоиде	tileproxy/fcommon.php
 coord2tileNum - координаты в номер тайла	 tileproxy/fcommon.php
-bearing Азимут между точками	map/dashboard.php
-equirectangularDistance
+bearing($pair) $pair = array(array($lon,$lat),array($lon,$lat)) Азимут между точками	map/dashboard.php
+equirectangularDistance($from,$to)
 destinationPoint
 */
 
