@@ -1,4 +1,4 @@
-[In English](README.md)  
+[In English](README.en.md)  
 # gpsdPROXY daemon [![License: CC BY-NC-SA 4.0](screenshots/Cc-by-nc-sa_icon.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en)
 **version 1**  
 
