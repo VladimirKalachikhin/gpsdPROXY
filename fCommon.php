@@ -1312,6 +1312,7 @@ $dataUpdated = time();	// Обозначим когда данные были о
 //echo "\n Data Updated: "; print_r($instrumentsDataUpdated);
 //echo "\n instrumentsData\n"; print_r($instrumentsData['ALARM']);
 //echo "\n instrumentsDataUpdated AIS:"; print_r($instrumentsDataUpdated['AIS']); echo "\n";
+//echo "instrumentsData AIS has ".count($instrumentsData['AIS'])." vessels     \n";
 //echo "instrumentsDataUpdated['ALARM']={$instrumentsDataUpdated['ALARM']};\n";
 return $instrumentsDataUpdated;
 } // end function updInstrumentsData
@@ -1377,7 +1378,7 @@ foreach($instrumentsData as $class => $devices){
 	case 'AIS':
 		foreach($instrumentsData['AIS'] as $id => $vehicle){
 			//echo "[chkFreshOfData] AIS id=$id;\n";
-				if(isset($gpsdProxyTimeouts['AIS']['noVehicle']) and isset($vehicle['timestamp']) and (($now - $vehicle['timestamp'])>$gpsdProxyTimeouts['AIS']['noVehicle'])) {
+			if(isset($gpsdProxyTimeouts['AIS']['noVehicle']) and isset($vehicle['timestamp']) and (($now - $vehicle['timestamp'])>$gpsdProxyTimeouts['AIS']['noVehicle'])) {
 				unset($instrumentsData['AIS'][$id]); 	// удалим цель, последний раз обновлявшуюся давно
 				$instrumentsDataUpdated['AIS'] = TRUE;
 				//echo "Данные AIS для судна ".$id." протухли на ".($now - $vehicle['timestamp'])." сек при норме {$gpsdProxyTimeouts['AIS']['noVehicle']}       \n";

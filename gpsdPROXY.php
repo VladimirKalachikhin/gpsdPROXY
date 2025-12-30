@@ -44,7 +44,7 @@ $ telnet localhost 3838
 ?WATCH={"enable":true,"json":true}
 */
 /*
-Version 1.3.2
+Version 1.3.3
 
 1.3.0	authorisation & following the route
 1.2.0	work on PHP8
@@ -176,6 +176,9 @@ $devicePresent = [];
 $rotateBeam = array("|","/","-","\\");
 $rBi = 0;
 
+// Размер буфера для приёма нормальных данных, не ws
+$bufSize = 102400;	// 100 KiloBytes
+//$bufSize = 1048576;	// 1 MegaBytes
 $dataSourceZeroCNT = 0;	// счётчик пустых строк, пришедших подряд от источника данных
 $NminSocketTimeouts = 30;
 $lastTryToDataSocket = time()-($NminSocketTimeouts*$minSocketTimeout+$minSocketTimeout);	// момент последней попытки поднять основной источник данных
@@ -329,6 +332,9 @@ do {
 				};
 			};
 			if($noData){	// нужных данных нет
+				// Нужно ли перезапускать? Но если наладится приёмник ГПС, связь... Если не 
+				// перезапускать, то нужно вручную перегрузить GaladrielMap, тогда запустится.
+				// Но юзер может и не сообразить...
 				exec('(crontab -l ; echo "*/3 * * * * '.$phpCLIexec.' '.__FILE__.'") | crontab -'); 	// каждые 3 минуты
 				exit("No clients and data, bye. But Cron will revive me.                     \n");
 			};
@@ -526,14 +532,10 @@ do {
 			// Считаем, что буфер указан достаточно большой, и всё сообщение считывается за раз.
 			// Трудно представить нормальную ситуацию, когда это было бы не так.
 			// А если кто решит зафлудить, то он обломается: никогда не будет принято больше буфера.
-			$buf = @socket_read($socket, 1048576, PHP_NORMAL_READ); 	// читаем построчно
-			// строки могут разделяться как \n, так и \r\n, но при PHP_NORMAL_READ reading stops at \n or \r,
-			// соотвественно, сперва строка заканчивается на \r, а после следующего чтения - на \r\n,
-			// и только тогда можно заменить. В результате строки составного сообщения (заголовки, например)
-			// всегда кончаются только \n
-			if($buf[-1]=="\n") $buf = trim($buf)."\n";
-			else $buf = trim($buf);
-		}
+			// Ну вот оно и: 6000 целей AIS имеют объём под 5Мб
+			// Так что нужно читать за сколько-то оборотов
+			$buf = @socket_read($socket, 5242880, PHP_NORMAL_READ); 	// читаем построчно
+		};
 		if($err = socket_last_error($socket)) { 	// с сокетом проблемы
 			//echo "\nbuf has type ".gettype($buf)." and=|$buf|\nwith error ".socket_last_error($socket)."\n";		
 			switch($err){
@@ -561,15 +563,6 @@ do {
 		    continue;	// к следующему сокету
 		}
 		//echo "\nПРИНЯТО ОТ КЛИЕНТА #$sockKey ".mb_strlen($buf,'8bit')." байт, PUT={$messages[$sockKey]['PUT']};\n";
-		//print_r($messages[$sockKey]);
-		if(@$messages[$sockKey]['PUT'] == TRUE){ 	// прочитали из соединения с каким-то источником данных с протоколом типа gpsg
-			//echo "\n buf from other # $sockKey $socket: $buf \n";
-			$inInstrumentsData = GPSDlikeInstrumentsDataDecode($buf);	// одно сообщение конкретного класса из потока
-			//echo "\n inInstrumentsData from other \n"; print_r($inInstrumentsData);
-			updAndPrepare($inInstrumentsData); // обновим кеш и отправим данные для режима WATCH
-			//echo "\n gpsdData\n"; print_r($instrumentsData);
-			continue; 	// к следующему сокету
-		}
 		if($messages[$sockKey]['greeting']===TRUE){ 	// с этим сокетом уже беседуем, значит -- пришли данные	
 			switch($messages[$sockKey]['protocol']){
 			case 'WS':	// ответ за запрос через websocket, здесь нет конца передачи, посылается сколько-то фреймов.
@@ -620,7 +613,7 @@ do {
 						}
 						//
 						if($tail) {	// есть уже следующее сообщение
-							echo "однако, в буфере ".mb_strlen($tail,'8bit')." байт \n";
+							//echo "однако, в буфере ".mb_strlen($tail,'8bit')." байт \n";
 						}
 						//
 						switch($realType){	// 
@@ -691,9 +684,30 @@ do {
 				break;	// case protocol WS
 			default:
 				//echo "Какой-то другой протокол.          \n";
+				if(@$messages[$sockKey]['PUT'] == TRUE){ 	// прочитали из соединения с каким-то источником данных с протоколом типа gpsg
+					$messages[$sockKey]['inBuf'] .= $buf;	// 
+					if((mb_strlen($buf,'8bit')==$bufSize) and ($buf[-1]!="\n")){	// прочитан ровно буфер, и сообщение не улеглось ровно в буфер
+						continue; 	// к следующему сокету
+					};
+					$buf = trim($messages[$sockKey]['inBuf']);	// 
+					$messages[$sockKey]['inBuf'] = '';	// 
+
+					//echo "\n buf from other GPSD # $sockKey ".mb_strlen($buf,'8bit')." bytes     \n"; //echo "$buf \n";
+					$inInstrumentsData = GPSDlikeInstrumentsDataDecode($buf);	// одно сообщение конкретного класса из потока
+					//echo "\n inInstrumentsData from other \n"; print_r($inInstrumentsData);
+					updAndPrepare($inInstrumentsData); // обновим кеш и отправим данные для режима WATCH
+					//echo "\n gpsdData\n"; print_r($instrumentsData);
+					continue; 	// к следующему сокету
+				};
 			}; // end switch protocol
 		}
 		else{ 	// с этим сокетом ещё не беседовали, значит, пришёл заголовок или команда gpsd или ничего, если сокет просто открыли
+			// строки могут разделяться как \n, так и \r\n, но при PHP_NORMAL_READ reading stops at \n or \r,
+			// соотвественно, сперва строка заканчивается на \r, а после следующего чтения - на \r\n,
+			// и только тогда можно заменить. В результате строки составного сообщения (заголовки, например)
+			// всегда кончаются только \n
+			if($buf[-1]=="\n") $buf = trim($buf)."\n";
+			else $buf = trim($buf);
 			// разберёмся с заголовком
 			if(!isset($messages[$sockKey]['inBuf'])) $messages[$sockKey]['inBuf'] = '';
 			$messages[$sockKey]['inBuf'] .= "$buf";	// собираем заголовок
@@ -734,8 +748,8 @@ do {
 		};
 
 		// выделим команду и параметры
+		//echo "Сообщение от клиента №$sockKey: ".mb_strlen($buf,'8bit')." байт\n"; //print_r($buf);echo "          \n";
 		if(!is_array($buf))	$buf = explode(';',$buf); 	// 
-		//echo "Сообщение от клиента №$sockKey: "; print_r($buf);echo "          \n";
 		foreach($buf as $command){
 			if(!$command) continue;
 			if($command[0]!='?') continue; 	// это не команда протокола gpsd
