@@ -534,7 +534,7 @@ do {
 			// А если кто решит зафлудить, то он обломается: никогда не будет принято больше буфера.
 			// Ну вот оно и: 6000 целей AIS имеют объём под 5Мб
 			// Так что нужно читать за сколько-то оборотов
-			$buf = @socket_read($socket, 5242880, PHP_NORMAL_READ); 	// читаем построчно
+			$buf = @socket_read($socket, $bufSize, PHP_NORMAL_READ); 	// читаем построчно
 		};
 		if($err = socket_last_error($socket)) { 	// с сокетом проблемы
 			//echo "\nbuf has type ".gettype($buf)." and=|$buf|\nwith error ".socket_last_error($socket)."\n";		
