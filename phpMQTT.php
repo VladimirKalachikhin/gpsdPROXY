@@ -34,7 +34,7 @@ namespace Bluerhinos;
 	
 */
 /*
-	Modified by Vladimir Kalachikhin on 2022
+	Modified by Vladimir Kalachikhin on 2022-2026
 	v.kalachikhin@gmail.com
 */
 
@@ -291,7 +291,7 @@ class phpMQTT
         while (!feof($this->socket) && $togo > 0) { 	//
             $fread = fread($this->socket, $togo);
             $string .= $fread;
-            $togo = $int - strlen($string);
+            $togo = $int - mb_strlen($string,'8bit');
         }
 		//echo "string=$string;\n";
         return $string;
@@ -361,7 +361,7 @@ class phpMQTT
 
         $head = chr($cmd);
         $head .= $this->setmsglength($i);
-        fwrite($this->socket, $head, strlen($head));
+        fwrite($this->socket, $head, mb_strlen($head,'8bit'));
 
         $this->_fwrite($buffer);
         $string = $this->read(2);
@@ -428,7 +428,7 @@ class phpMQTT
         }
 
         $buffer .= $content;
-        $i += strlen($content);
+        $i += mb_strlen($content,'8bit');
 
         $head = ' ';
         $cmd = 0x30;
@@ -442,7 +442,7 @@ class phpMQTT
         $head[0] = chr($cmd);
         $head .= $this->setmsglength($i);
 
-        @fwrite($this->socket, $head, strlen($head));	// сокет мог умереть. Переподключение -- в proc
+        @fwrite($this->socket, $head, mb_strlen($head,'8bit'));	// сокет мог умереть. Переподключение -- в proc
         $this->_fwrite($buffer);
     }
 
@@ -455,7 +455,7 @@ class phpMQTT
      */
     protected function _fwrite($buffer)
     {
-        $buffer_length = strlen($buffer);
+        $buffer_length = mb_strlen($buffer,'8bit');
         for ($written = 0; $written < $buffer_length; $written += $fwrite) {
             @$fwrite = fwrite($this->socket, substr($buffer, $written));	// сокет мог умереть. Переподключение -- в proc
             if ($fwrite === false) {
@@ -654,7 +654,7 @@ class phpMQTT
      */
     protected function strwritestring($str, &$i): string
     {
-        $len = strlen($str);
+        $len = mb_strlen($str,'8bit');
         $msb = $len >> 8;
         $lsb = $len % 256;
         $ret = chr($msb);
@@ -671,7 +671,7 @@ class phpMQTT
      */
     public function printstr($string): void
     {
-        $strlen = strlen($string);
+        $strlen = mb_strlen($string,'8bit');
         for ($j = 0; $j < $strlen; $j++) {
             $num = ord($string[$j]);
             if ($num > 31) {

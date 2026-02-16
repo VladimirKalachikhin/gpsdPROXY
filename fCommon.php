@@ -205,7 +205,7 @@ do { 	// при каскадном соединении нескольких gps
 				"split24"=>TRUE 	// объединять части длинных сообщений
 			);
 			$msg = '?WATCH='.json_encode($params)."\n"; 	// велим gpsd включить устройства и посылать информацию
-			$res = socket_write($gpsdSock, $msg, strlen($msg));
+			$res = socket_write($gpsdSock, $msg, mb_strlen($msg,'8bit'));
 			if($res === FALSE) { 	// gpsd умер
 				chkSocks($gpsdSock);
 				echo "\n[connectToGPSD] Failed to send WATCH to gpsd: " . socket_strerror(socket_last_error()) . "\n";
@@ -1312,6 +1312,7 @@ $dataUpdated = time();	// Обозначим когда данные были о
 //echo "\n Data Updated: "; print_r($instrumentsDataUpdated);
 //echo "\n instrumentsData\n"; print_r($instrumentsData['ALARM']);
 //echo "\n instrumentsDataUpdated AIS:"; print_r($instrumentsDataUpdated['AIS']); echo "\n";
+//echo "instrumentsData AIS has ".count($instrumentsData['AIS'])." vessels     \n";
 //echo "instrumentsDataUpdated['ALARM']={$instrumentsDataUpdated['ALARM']};\n";
 return $instrumentsDataUpdated;
 } // end function updInstrumentsData
@@ -1377,7 +1378,7 @@ foreach($instrumentsData as $class => $devices){
 	case 'AIS':
 		foreach($instrumentsData['AIS'] as $id => $vehicle){
 			//echo "[chkFreshOfData] AIS id=$id;\n";
-				if(isset($gpsdProxyTimeouts['AIS']['noVehicle']) and isset($vehicle['timestamp']) and (($now - $vehicle['timestamp'])>$gpsdProxyTimeouts['AIS']['noVehicle'])) {
+			if(isset($gpsdProxyTimeouts['AIS']['noVehicle']) and isset($vehicle['timestamp']) and (($now - $vehicle['timestamp'])>$gpsdProxyTimeouts['AIS']['noVehicle'])) {
 				unset($instrumentsData['AIS'][$id]); 	// удалим цель, последний раз обновлявшуюся давно
 				$instrumentsDataUpdated['AIS'] = TRUE;
 				//echo "Данные AIS для судна ".$id." протухли на ".($now - $vehicle['timestamp'])." сек при норме {$gpsdProxyTimeouts['AIS']['noVehicle']}       \n";

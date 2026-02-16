@@ -207,7 +207,7 @@ $signalKsubscribe .= '
 $signalKsubscribe = json_decode($signalKsubscribe, true);
 //echo "signalKsubscribe: "; print_r($signalKsubscribe); echo "\n";
 $signalKsubscribe = json_encode($signalKsubscribe)."\r\n";
-$res = socket_write($dataSock, $signalKsubscribe, strlen($signalKsubscribe));	// Подпишемся
+$res = socket_write($dataSock, $signalKsubscribe, mb_strlen($signalKsubscribe,'8bit'));	// Подпишемся
 
 return array($self);
 } // end function connectToDataSource
@@ -215,7 +215,7 @@ return array($self);
 function dataSourceClose($dataSock){
 /* Close data source connection */
 $signalKunSubscribe = '{"context": "*", "unsubscribe": [{"path": "*"}]}';
-$res = @socket_write($dataSock, $signalKunSubscribe, strlen($signalKunSubscribe));	// Отпишемся
+$res = @socket_write($dataSock, $signalKunSubscribe, mb_strlen($signalKunSubscribe,'8bit'));	// Отпишемся
 @socket_close($dataSock);
 return TRUE;
 } // end function dataSourceClose

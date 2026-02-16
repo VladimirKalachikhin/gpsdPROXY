@@ -11,7 +11,7 @@ return connectToGPSD($dataSock);	// по историческим причина
 
 function dataSourceClose($dataSock){
 $msg = '?WATCH={"enable":false}'."\n";
-$res = @socket_write($dataSock, $msg, strlen($msg));
+$res = @socket_write($dataSock, $msg, mb_strlen($msg,'8bit'));
 @socket_close($dataSock);
 return true;
 } // end function dataSourceClose
