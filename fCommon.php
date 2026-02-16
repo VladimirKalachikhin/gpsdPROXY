@@ -205,7 +205,7 @@ do { 	// при каскадном соединении нескольких gps
 				"split24"=>TRUE 	// объединять части длинных сообщений
 			);
 			$msg = '?WATCH='.json_encode($params)."\n"; 	// велим gpsd включить устройства и посылать информацию
-			$res = socket_write($gpsdSock, $msg, strlen($msg));
+			$res = socket_write($gpsdSock, $msg, mb_strlen($msg,'8bit'));
 			if($res === FALSE) { 	// gpsd умер
 				chkSocks($gpsdSock);
 				echo "\n[connectToGPSD] Failed to send WATCH to gpsd: " . socket_strerror(socket_last_error()) . "\n";
