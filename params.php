@@ -159,6 +159,10 @@ $backupTimeout = 10;	// backup period, sec.
 $backupFileName = 'backup/gpsdPROXYbackup.json';	// backup filename
 
 // system
+// строка запуска консольного интерпретатора php
+// Если не указано, автоматически будет предпринята попытка определить фактически используемую строку запуска.
+// php-cli executed name on your OS
+// If not specified, an attempt will be made automatically to determine the actual startup string being used.
 $phpCLIexec = 'php'; 	// php-cli executed name on your OS
 //$phpCLIexec = '/usr/bin/php-cli'; 	// php-cli executed name on your OS
 ?>

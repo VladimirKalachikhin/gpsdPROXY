@@ -42,6 +42,18 @@ $ telnet localhost 3838
 ?POLL;
 
 ?WATCH={"enable":true,"json":true}
+
+Подписка
+Subscribe
+TPV,ATT,ALARM,AIS,WPT,PANO,SELF
+?WATCH={
+	"enable":true,
+	"json":true,
+	"clientName":"${clientName.value}",
+	"subscribe":"TPV,WPT",
+	"PANOrole":"master"	// "slave"
+};
+
 */
 /*
 Version 1.3.3
@@ -63,11 +75,13 @@ ini_set('error_reporting', E_ALL & ~E_NOTICE & ~E_STRICT & ~E_DEPRECATED);
 chdir(__DIR__); // задаем директорию выполнение скрипта
 
 require('params.php'); 	// 
+if(!$phpCLIexec) $phpCLIexec = trim(explode(' ',trim(shell_exec("ps -p ".(getmypid())." -o command=")))[0]);	// из PID системной командой получаем командную строку и берём первый отделённый пробелом элемент. Считаем, что он - команда запуска php. Должно работать и в busybox.
 require('fCommon.php'); 	// 
 require('fGeodesy.php'); 	// 
 require('fGeometry.php'); 	// 
 require('fCollisions.php'); 	// 
 require('fWaypoints.php'); 	// 
+require('fPano.php'); 	// 
 if($grantsAddrList)	require('fNetGrants.php');
 
 if(IRun()) { 	// Я ли?
@@ -99,7 +113,7 @@ $gpsdProxydevice = array(
 if(!$gpsdProxyHosts) $gpsdProxyHosts=array(array('localhost',3838)); 	// я сам. Хосты/порты для обращения к gpsdProxy
 
 
-$pollWatchExist = array();	// флаг, что есть сокеты в режиме WATCH, когда данные им посылаются непрерывно, и список имеющихся подписок
+$pollWatchExist = array();	// флаг, что есть сокеты в режиме WATCH, когда данные им посылаются непрерывно, и список имеющихся подписок. Обновляется при вызове updAndPrepare, но должен быть создан до.
 $minSocketTimeout = 86400;	// сек., сутки
 // определим, какое минимальное время протухания величины указано в конфиге
 array_walk_recursive($gpsdProxyTimeouts, function($val){
@@ -232,6 +246,7 @@ do {
 					// данных другого типа невозможно. Поэтому надо убиться и запуститься снова, тогда
 					// будет найден новый источник данных и соответствующие функции будут определены для него.
 					// перезапускать будем кроном, потому что busybox не имеет команды at
+					// Переопределить нельзя, а присвоить функцию переменной можно.
 					exec('(crontab -l ; echo "* * * * * '.$phpCLIexec.' '.__FILE__.'") | crontab -'); 	// каждую минуту
 					exit("Main data source died, I die too. But Cron will revive me.\n");
 				};
@@ -773,6 +788,12 @@ do {
 						$messages[$sockKey]['POLL'] = 'WATCH'; 	// отметим, что WATCH получили в виде, означающем, что это не POLL, надо слать данные непрерывно
 						$messages[$sockKey]['minPeriod'] = @$params['minPeriod'];
 						$messages[$sockKey]['subscribe'] = $params['subscribe'];
+						// clientName теперь всегда есть, хотя, если клиент имени не присылает - оно бессмысленно.
+						// Однако, вся логика по-прежнему строится на $sockKey, а clientName
+						// нужно для адресации сообщений в сервисе PANO. Ну и может ещё для чего сообщения понадобятся.
+						if($params['clientName']) $messages[$sockKey]['clientName'] = $params['clientName'];
+						else $messages[$sockKey]['clientName'] = uuidv4();
+						//echo "\n messages[$sockKey]:"; print_r($messages[$sockKey]);
 						// Сразу отправим ему все уже существующие данные в соответствии с его подпиской
 						foreach($messages[$sockKey]['subscribe'] as $subscribe=>$v){
 							$pollWatchExist[$subscribe] = TRUE;	// отметим, что есть сокет с режимом WATCH и некоторой подпиской
@@ -792,8 +813,22 @@ do {
 							case "WPT":
 								$messages[$sockKey]['output'][] = json_encode(makeWPT(), JSON_PRESERVE_ZERO_FRACTION | JSON_UNESCAPED_UNICODE)."\r\n\r\n";
 								break;
+							case 'PANO':
+								// Если он подписано - он и так получит это сообщение
+								//$messages[$sockKey]['output'][] = json_encode(actionPANO(array("action"=>"getList"))['PANO'], JSON_PRESERVE_ZERO_FRACTION | JSON_UNESCAPED_UNICODE)."\r\n\r\n";
+								//echo "\n По подпискеPANO отправлено: messages[$sockKey]['output']:"; print_r($messages[$sockKey]['output']);
+								break;
 							}
-						}
+						};
+						// Уведомим всех подписчиков, что список участников PANO изменился
+						// Это после отправки ему его подписки, потому что там выставляется pollWatchExist
+						// а клиент с PANOrole иметь подписку ни на что не обязан, хотя не иметь
+						// её на PANO было бы странно. Но updAndPrepare сработает, только если
+						// есть pollWatchExist, т.е., у кого-то на что-то есть подписка.
+						if($params['PANOrole']) {
+							$messages[$sockKey]['PANOrole'] = $params['PANOrole'];
+							updAndPrepare(null,null,actionPANO(array("action"=>"getList")));	// Всем подписчикам (включая этот) разошлётся список подключенных приложений PANO
+						};
 					}
 					else {
 						$messages[$sockKey]['POLL'] = TRUE; 	// отметим, что WATCH получили, можно отвечать на POLL
@@ -852,6 +887,17 @@ do {
 				//print_r($params); echo "\n";
 				if(!$messages[$sockKey]['privileged']) break;	// авторизация.
 				updAndPrepare(null,null,actionWPT($params));	// 
+				break;
+			case 'PANO':	// Эта операция требует авторизации.
+				// Существует два источника изменения данных класса PANO:
+				// 1) Регистрация клиента с PANOrole
+				// 2) Команда PANO
+				// Здесь есть аналогия с WPT
+				//echo "\n PANO command from #$sockKey $socket privileged={$messages[$sockKey]['privileged']}\n"; 
+				//print_r($params); echo "\n";
+				if(!$messages[$sockKey]['privileged']) break;	// авторизация.
+				$params['clientFromName'] = $messages[$sockKey]['clientName'];
+				updAndPrepare(null,null,actionPANO($params));	// 
 				break;
 			};
 		};
