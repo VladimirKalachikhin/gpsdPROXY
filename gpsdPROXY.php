@@ -56,7 +56,7 @@ TPV,ATT,ALARM,AIS,WPT,PANO,SELF
 
 */
 /*
-Version 1.3.3
+Version 1.3.4
 
 1.3.0	authorisation & following the route
 1.2.0	work on PHP8
