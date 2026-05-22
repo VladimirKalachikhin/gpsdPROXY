@@ -56,8 +56,9 @@ TPV,ATT,ALARM,AIS,WPT,PANO,SELF
 
 */
 /*
-Version 1.3.4
+Version 1.4.0
 
+1.4.0	messaging in the form of panorama control
 1.3.0	authorisation & following the route
 1.2.0	work on PHP8
 1.1.0	ATT class
